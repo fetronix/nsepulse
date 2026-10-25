@@ -290,6 +290,34 @@ MANSA_API_BASE_URL=https://mansaapi.com
 MANSA_API_KEY=mansa_live_sk_your_key_here   # .env only — never commit it
 ```
 
+Turning it on, in order:
+
+```bash
+# 1. edit .env: MARKET_DATA_PROVIDER=mansa  (keep MANSA_API_KEY server-side)
+# 2. restart, then confirm the adapter resolved without a warning:
+npm run dev:api
+#    {"module":"providers","requestedProvider":"mansa","provider":"mansa",...,"warnings":[...]}
+
+# 3. one authenticated call, printed without the key:
+npm run mansa:probe
+
+# 4. or ask the API directly:
+curl -s localhost:4000/api/v1/quotes/SCOM
+curl -s localhost:4000/api/v1/providers
+```
+
+What to expect, stated honestly:
+
+- Until an authenticated response arrives, the adapter reports `DEGRADED`/`ERROR`; it never
+  pretends to be `READY`, and `/quotes/{symbol}` answers with a `reason` rather than a price.
+- `/market/overview` and the dashboard read **stored** observations. With
+  `ENABLE_SCHEDULER=false` nothing refreshes the stored snapshot, so counts stay at 0 and
+  indices/breadth stay empty. Set `ENABLE_SCHEDULER=true` (requires the database) to refresh
+  every 30 minutes — 48 calls/day of the documented 100 — or query per symbol, which needs no
+  scheduler.
+- The Telegram bot reads the same normalized service, so `/quote SCOM` works with the scheduler
+  off while `/gainers` and scheduled reports need a configured bot token.
+
 Endpoints used, all taken verbatim from Mansa's published documentation:
 
 | Endpoint                                                       | Purpose                                  |
@@ -333,9 +361,12 @@ Security master import (reviewed official CSV, not a scrape):
 ```bash
 SECURITY_MASTER_SOURCE_URL='https://<official-source>/reviewed-list.csv' \
 SECURITY_MASTER_VERIFIED_AT='2026-10-25T09:00:00+03:00' \
-DATABASE_URL='postgres://...' \
-npx tsx src/server/db/import-securities.ts ./reviewed-nse-list.csv
+npm run db:import-securities -- ./reviewed-nse-list.csv
 ```
+
+The connection comes from `DATABASE_URL` **or** the `SQL_*` variables. A freshly migrated
+database has an empty `securities` table, so `/api/v1/securities` and the Stocks explorer stay
+empty until this import runs; `/market/overview` reports `counts.securities: 0`.
 
 Columns: `symbol,name,instrumentType,listingStatus` (optional `sector`). Imported rows stay
 `review_required=true` until a human verifies them.

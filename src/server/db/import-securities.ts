@@ -53,13 +53,14 @@ async function main(): Promise<void> {
         job: 'import_securities',
         outcome: 'refused',
         missing: [
-          config.DATABASE_URL ? null : 'DATABASE_URL',
+          config.DATABASE_URL ? null : 'database connection (DATABASE_URL or SQL_HOST/SQL_DB_NAME/SQL_ADMIN_USER)',
           path ? null : 'CSV path argument',
           sourceUrl ? null : 'SECURITY_MASTER_SOURCE_URL',
           verifiedAtRaw ? null : 'SECURITY_MASTER_VERIFIED_AT'
         ].filter(Boolean)
       },
-      'Usage: SECURITY_MASTER_SOURCE_URL=https://official-source/... SECURITY_MASTER_VERIFIED_AT=ISO-8601 DATABASE_URL=... npx tsx src/server/db/import-securities.ts securities.csv'
+      'Usage: SECURITY_MASTER_SOURCE_URL=https://official-source/... SECURITY_MASTER_VERIFIED_AT=ISO-8601 npm run db:import-securities -- securities.csv ' +
+        '(the database comes from DATABASE_URL or the SQL_* variables)'
     );
     process.exitCode = 1;
     return;

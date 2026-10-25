@@ -56,6 +56,30 @@ describe('overview', () => {
     expect(overview.dataPolicy.sourceLabels.quotes).toContain('no live feed');
   });
 
+  it('stops claiming there is no live feed once a live adapter is ready', async () => {
+    // A configured-but-unproven adapter must not be described as live, and a proven one must
+    // not keep the "no live feed" label: the label follows observed state, not configuration.
+    const selection = createProviderSelection(
+      { ...DEFAULT_PROVIDER_SETTINGS, provider: 'mansa' },
+      { mansaCredentials: { baseUrl: 'https://mansaapi.com', apiKey: 'test-key-not-real' } }
+    );
+    const registry = selection.registry;
+    vi.spyOn(registry, 'statuses').mockResolvedValue([
+      {
+        provider: 'mansa',
+        configured: true,
+        state: 'READY',
+        message: 'Authenticated call succeeded.',
+        lastSuccessAt: new Date().toISOString(),
+        dataMode: 'DELAYED'
+      }
+    ]);
+    const overview = await new MarketService(registry).overview();
+    expect(overview.dataPolicy.liveQuoteAdapterEnabled).toBe(true);
+    expect(overview.dataPolicy.sourceLabels.quotes).toContain('fetched live');
+    expect(overview.dataPolicy.sourceLabels.quotes).not.toContain('no live feed');
+  });
+
   it('labels demo mode explicitly', async () => {
     const selection = createProviderSelection({ ...DEFAULT_PROVIDER_SETTINGS, provider: 'demo', allowDemoData: true });
     const overview = await new MarketService(selection.registry).overview();

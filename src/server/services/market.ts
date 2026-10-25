@@ -173,7 +173,11 @@ export class MarketService {
         demoMode: this.demoActive,
         demoNotice: this.demoActive ? DEMO_NOTICE : null,
         sourceLabels: {
-          quotes: this.demoActive ? 'DEMO FIXTURE — synthetic values' : 'Stored observations only; no live feed',
+          quotes: this.demoActive
+            ? 'DEMO FIXTURE — synthetic values'
+            : liveQuoteAdapterEnabled
+              ? 'Stored observations from the configured provider; per-symbol quotes are fetched live and carry their own timestamp'
+              : 'Stored observations only; no live feed',
           historical: 'Stored end-of-day records (source recorded per row)',
           announcements: 'Official announcements only when an enabled permitted source exists'
         },
