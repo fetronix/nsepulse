@@ -9,6 +9,9 @@
 - Safe generic API error responses; no secret-bearing provider configuration is returned by health APIs. Provider configuration and test endpoints expose credential _presence_ only — no field ever carries a secret value, and tests assert injected values never appear in responses.
 - `POST /api/v1/providers/test` is rate limited (10/minute), performs local checks only and reports whether any outbound request was made; the bundled adapters make none.
 - Database secrets and Telegram token are environment-only; `.env` excluded from git.
+- Structured logging (pino) with redaction paths for authorization headers, cookies, tokens, API keys and passwords; request logs carry a correlation id and a path without query string, never headers or bodies.
+- Caller-supplied `x-request-id` values are only echoed when they match a UUID-like pattern; otherwise a new id is generated to prevent log injection.
+- CI runs `npm audit --audit-level=high` and fails if any tracked `.env` file exists.
 - SQL uses parameterized queries; Drizzle query builder for application reads.
 
 ## Important gaps

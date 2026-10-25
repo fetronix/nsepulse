@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { config } from '../config.js';
+import { moduleLogger } from '../logging/logger.js';
 import {
   SecurityMasterFormatError,
   parseSecurityMasterCsv,
@@ -8,6 +9,8 @@ import {
   validateVerifiedAt,
   type ParsedSecurityRow
 } from './security-master.js';
+
+const log = moduleLogger('db.import_securities');
 
 /**
  * CLI importer for a reviewed official NSE/CDSC security master.
@@ -45,7 +48,17 @@ async function main(): Promise<void> {
   const sourceUrl = process.env.SECURITY_MASTER_SOURCE_URL;
   const verifiedAtRaw = process.env.SECURITY_MASTER_VERIFIED_AT;
   if (!config.DATABASE_URL || !path || !sourceUrl || !verifiedAtRaw) {
-    console.error(
+    log.error(
+      {
+        job: 'import_securities',
+        outcome: 'refused',
+        missing: [
+          config.DATABASE_URL ? null : 'DATABASE_URL',
+          path ? null : 'CSV path argument',
+          sourceUrl ? null : 'SECURITY_MASTER_SOURCE_URL',
+          verifiedAtRaw ? null : 'SECURITY_MASTER_VERIFIED_AT'
+        ].filter(Boolean)
+      },
       'Usage: SECURITY_MASTER_SOURCE_URL=https://official-source/... SECURITY_MASTER_VERIFIED_AT=ISO-8601 DATABASE_URL=... npx tsx src/server/db/import-securities.ts securities.csv'
     );
     process.exitCode = 1;
@@ -60,7 +73,15 @@ async function main(): Promise<void> {
     verifiedDate = validateVerifiedAt(verifiedAtRaw);
     rows = parseSecurityMasterCsv(await readFile(path, 'utf8'));
   } catch (error) {
-    console.error(error instanceof SecurityMasterFormatError ? error.message : 'Unable to read or parse the CSV file.');
+    log.error(
+      {
+        job: 'import_securities',
+        outcome: 'invalid_input',
+        errorClass: error instanceof SecurityMasterFormatError ? 'SecurityMasterFormatError' : 'ReadError',
+        errorMessage: error instanceof Error ? error.message : 'Unable to read or parse the CSV file.'
+      },
+      error instanceof SecurityMasterFormatError ? error.message : 'Unable to read or parse the CSV file.'
+    );
     process.exitCode = 1;
     return;
   }
@@ -71,9 +92,21 @@ async function main(): Promise<void> {
   });
   try {
     const imported = await importSecurities(rows, sourceUrl, verifiedDate, pool);
-    console.log(
+    log.info(
+      { job: 'import_securities', outcome: 'success', imported, sourceHost: source.host },
       `Imported ${imported} securities from ${source.href}. All records are flagged for administrator review; this does not verify the source's data-use rights.`
     );
+  } catch (error) {
+    log.error(
+      {
+        job: 'import_securities',
+        outcome: 'failure',
+        errorClass: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : 'unknown error'
+      },
+      'Security master import failed and was rolled back.'
+    );
+    process.exitCode = 1;
   } finally {
     await pool.end();
   }

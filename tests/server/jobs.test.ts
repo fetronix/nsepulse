@@ -39,13 +39,23 @@ async function loadRunner(env: Record<string, string | undefined>) {
   return import('../../src/server/jobs/runner.js');
 }
 
+type LogFn = (fields: Record<string, unknown>, message: string) => void;
+
+/** Minimal logger double that records structured fields and messages. */
+class FakeLogger {
+  readonly info = vi.fn<LogFn>();
+  readonly error = vi.fn<LogFn>();
+  readonly warn = vi.fn<LogFn>();
+}
+
+let logger: FakeLogger;
+
 beforeEach(() => {
   scheduledTasks.length = 0;
   lockCalls.length = 0;
   lockBehaviour = 'run';
   stopSpy.mockClear();
-  vi.spyOn(console, 'log').mockImplementation(() => undefined);
-  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  logger = new FakeLogger();
 });
 
 afterEach(() => {
@@ -80,28 +90,29 @@ describe('retry helper', () => {
 describe('scheduler', () => {
   it('does not schedule anything when disabled', async () => {
     const runner = await loadRunner({ ENABLE_SCHEDULER: 'false', DATABASE_URL: 'postgres://localhost/nse' });
-    const stop = runner.startScheduler();
+    const stop = runner.startScheduler({ logger: logger as never });
     expect(scheduledTasks).toHaveLength(0);
     expect(() => stop()).not.toThrow();
   });
 
   it('does not schedule when no database is configured', async () => {
     const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: undefined });
-    runner.startScheduler();
+    runner.startScheduler({ logger: logger as never });
     expect(scheduledTasks).toHaveLength(0);
   });
 
   it('schedules one in-process heartbeat under an advisory lock', async () => {
     const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://localhost/nse_test' });
-    const stop = runner.startScheduler();
+    const stop = runner.startScheduler({ logger: logger as never });
     expect(scheduledTasks).toHaveLength(1);
     expect(scheduledTasks[0]?.cron).toBe('*/5 * * * *');
     expect(scheduledTasks[0]?.options).toEqual({ timezone: 'Africa/Nairobi' });
 
     await scheduledTasks[0]!.handler();
     expect(lockCalls).toHaveLength(1);
-    const logged = (console.log as unknown as { mock: { calls: string[][] } }).mock.calls.flat().join(' ');
-    expect(logged).toContain('provider_health_check');
+    const [fields, message] = logger.info.mock.calls[0]!;
+    expect(message).toBe('provider_health_check');
+    expect(fields).toMatchObject({ job: 'provider_health_check', outcome: 'success' });
 
     stop();
     expect(stopSpy).toHaveBeenCalledOnce();
@@ -110,18 +121,19 @@ describe('scheduler', () => {
   it('skips work when the advisory lock is held elsewhere', async () => {
     lockBehaviour = 'skip';
     const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://localhost/nse_test' });
-    runner.startScheduler();
+    runner.startScheduler({ logger: logger as never });
     await scheduledTasks[0]!.handler();
-    const logged = (console.log as unknown as { mock: { calls: string[][] } }).mock.calls.flat().join(' ');
-    expect(logged).not.toContain('provider_health_check');
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('logs a structured error when the heartbeat fails', async () => {
     lockBehaviour = 'throw';
     const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://localhost/nse_test' });
-    runner.startScheduler();
+    runner.startScheduler({ logger: logger as never });
     await scheduledTasks[0]!.handler();
-    const logged = (console.error as unknown as { mock: { calls: string[][] } }).mock.calls.flat().join(' ');
-    expect(logged).toContain('provider_health_check_failed');
+    const [fields, message] = logger.error.mock.calls[0]!;
+    expect(message).toBe('provider_health_check_failed');
+    expect(fields).toMatchObject({ job: 'provider_health_check', outcome: 'failure', errorClass: 'Error' });
   });
 });

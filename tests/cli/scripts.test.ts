@@ -29,7 +29,7 @@ describe('db:check script', () => {
   it('exits non-zero and explains the missing configuration', async () => {
     const result = await runScript('src/server/db/check.ts', [], { DATABASE_URL: undefined });
     expect(result.code).toBe(1);
-    expect(result.stdout).toContain('"configured": false');
+    expect(result.stdout).toContain('"configured":false');
     expect(result.stdout).toContain('DATABASE_URL is not configured');
   });
 });
@@ -38,7 +38,7 @@ describe('db:migrate script', () => {
   it('refuses to run without DATABASE_URL', async () => {
     const result = await runScript('src/server/db/migrate.ts', [], { DATABASE_URL: undefined });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('DATABASE_URL is required for migrations');
+    expect(`${result.stdout}${result.stderr}`).toContain('DATABASE_URL is required for migrations');
   });
 
   it('reports a migration failure without leaking credentials', async () => {
@@ -46,7 +46,7 @@ describe('db:migrate script', () => {
       DATABASE_URL: 'postgres://user:supersecret@127.0.0.1:1/nse_test'
     });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('Migration failed');
+    expect(`${result.stdout}${result.stderr}`).toContain('Migration failed');
     expect(`${result.stdout}${result.stderr}`).not.toContain('supersecret');
   });
 });
@@ -55,7 +55,7 @@ describe('security master importer', () => {
   it('prints usage and exits non-zero when arguments are missing', async () => {
     const result = await runScript('src/server/db/import-securities.ts', [], { DATABASE_URL: undefined });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('Usage: SECURITY_MASTER_SOURCE_URL');
+    expect(`${result.stdout}${result.stderr}`).toContain('Usage: SECURITY_MASTER_SOURCE_URL');
   });
 
   it('refuses a non-official source host before touching the database', async () => {
@@ -65,7 +65,7 @@ describe('security master importer', () => {
       SECURITY_MASTER_VERIFIED_AT: '2026-10-25T09:00:00Z'
     });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('HTTPS NSE or CDSC');
+    expect(`${result.stdout}${result.stderr}`).toContain('HTTPS NSE or CDSC');
   });
 
   it('refuses an invalid verification timestamp', async () => {
@@ -75,7 +75,7 @@ describe('security master importer', () => {
       SECURITY_MASTER_VERIFIED_AT: 'not-a-date'
     });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('ISO timestamp');
+    expect(`${result.stdout}${result.stderr}`).toContain('ISO timestamp');
   });
 });
 

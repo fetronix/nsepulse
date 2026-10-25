@@ -24,8 +24,12 @@ For a separate bot process, configure its environment with `TELEGRAM_BOT_TOKEN`,
 
 ## Health and logs
 
-- Liveness/diagnostic endpoint: `GET /api/v1/health`.
-- Logs are JSON-shaped events on stdout/stderr. Do not add raw provider payloads, secrets, user content or full Telegram update objects to logs.
+- Liveness: `GET /api/v1/health/live` — process is up; never touches the database or a provider. Use for container restart probes.
+- Readiness: `GET /api/v1/health/ready` — returns `200` with `status: ready` when the instance can serve honest responses, `503` with `status: not_ready` when a configured database is unreachable. A database that is not configured is the documented servable mode, so it reports `ready` with `dataFreshness: NO_DATA`.
+- Diagnostic: `GET /api/v1/health` — app, database, provider, demo and live-adapter state.
+- Logs are newline-delimited JSON (pino) on stdout with `service`, `env`, `module`, `time` and `level` fields. Request logs add `correlationId` (also returned as the `x-request-id` response header), method, path without query string, status code and duration. Set `LOG_LEVEL` to `debug|info|warn|error` (default `info`); tests run at `silent`.
+- Secret-looking fields (`authorization`, `cookie`, `token`, `apiKey`, `password`, `secret`) are redacted by the logger configuration, but call sites must still avoid logging payloads, credentials, user content or full Telegram update objects.
+- Errors are logged with `errorClass` and `errorMessage` only; stack traces are not written to the API response.
 - Monitor API uptime, DB connectivity/latency, job status, Telegram delivery failures, provider timestamps, and ingestion quality once those systems are connected.
 - App `status: ok` is not proof that data exists or is fresh; inspect the independent database/provider fields.
 - Provider commissioning: `GET /api/v1/providers/configuration` (dashboard **Provider setup**) reports integration state, credential presence without values, declared coverage, last retrieval, test results and licensing requirements. `POST /api/v1/providers/test` runs local checks only and reports whether a network call was made (none in the bundled adapters).
@@ -66,5 +70,6 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 - Historical data present but withheld: `HISTORICAL_DATA_PERMISSION_CONFIRMED` is not `true`. Record written permission before enabling; the flag is an operator attestation, not a licence.
 - No announcements shown: expected unless permission is recorded and an `ISSUER_ANNOUNCEMENT` source row is enabled. The application never scrapes or fetches announcements itself.
 - Quotes absent: importer/feed are not active; do not use synthetic or scraped values as a workaround.
+- Shutdown: `SIGTERM`/`SIGINT` stop the scheduler, stop accepting connections, stop the Telegram bot, close the database pool and exit; a 10-second deadline forces termination. A second signal exits immediately.
 - Bot inactive: configure token on exactly one polling process and check Telegram connectivity; the token is secret.
 - Scheduler disabled: set `ENABLE_SCHEDULER=true` with DB available only if the provider-health heartbeat is wanted. It does not ingest data.

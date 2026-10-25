@@ -1,10 +1,15 @@
-import express, { type ErrorRequestHandler } from 'express';
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { pinoHttp } from 'pino-http';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { databaseHealth } from '../db/client.js';
+import { logger } from '../logging/logger.js';
+import { livenessReport, readinessReport } from '../services/health.js';
 import { createProviderSelection } from '../providers/factory.js';
 import { ProviderRuntime } from '../providers/runtime.js';
 import { providerSettingsFromEnv } from '../providers/settings.js';
@@ -16,6 +21,8 @@ import { openApi } from './openapi.js';
 export interface AppOptions {
   /** Override provider selection (tests). Defaults to the environment-derived selection. */
   selection?: ReturnType<typeof createProviderSelection>;
+  /** Disable request logging (tests). */
+  quiet?: boolean;
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -29,11 +36,61 @@ export function createApp(options: AppOptions = {}) {
   const providerConfiguration = new ProviderConfigurationService(selection, runtime);
   const dataSources = new DataSourceService(selection.settings, selection);
   app.disable('x-powered-by');
+  app.set('trust proxy', 'loopback');
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
+
+  /**
+   * Request correlation and structured access logs.
+   *
+   * A caller-supplied request id is echoed only when it looks like a UUID; anything else
+   * is replaced to keep logs unambiguous. Route templates are logged instead of raw paths
+   * so identifiers do not leak into log fields.
+   */
+  const correlation: RequestHandler = (req, res, next) => {
+    const supplied = req.header('x-request-id');
+    const requestId = supplied && /^[0-9a-f-]{16,64}$/i.test(supplied) ? supplied : randomUUID();
+    res.locals.requestId = requestId;
+    res.setHeader('x-request-id', requestId);
+    next();
+  };
+  app.use(correlation);
+  if (!options.quiet) {
+    app.use(
+      pinoHttp({
+        logger,
+        genReqId: (_req: IncomingMessage, res: ServerResponse) => String(res.getHeader('x-request-id') ?? 'unknown'),
+        autoLogging: { ignore: (req: IncomingMessage) => req.url === '/api/v1/health/live' },
+        customSuccessMessage: (req: IncomingMessage, res: ServerResponse) =>
+          `${req.method} ${req.url?.split('?')[0] ?? ''} ${res.statusCode}`,
+        customErrorMessage: (req: IncomingMessage, res: ServerResponse) =>
+          `${req.method} ${req.url?.split('?')[0] ?? ''} ${res.statusCode}`,
+        serializers: {
+          // Paths are logged without query strings; no headers, cookies or bodies are kept.
+          req: (req: IncomingMessage) => ({ method: req.method, path: req.url?.split('?')[0] }),
+          res: (res: ServerResponse) => ({ statusCode: res.statusCode })
+        }
+      })
+    );
+  }
   app.use(cors({ origin: config.APP_ORIGIN, credentials: false, methods: ['GET', 'POST', 'DELETE', 'OPTIONS'] }));
   app.use(express.json({ limit: '32kb' }));
   app.use('/api', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false }));
   const testLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false });
+
+  /** Liveness: process is up. Never depends on the database or a provider. */
+  app.get('/api/v1/health/live', (_req, res) => {
+    res.status(200).json(livenessReport());
+  });
+
+  /** Readiness: can this instance serve honest responses right now? */
+  app.get('/api/v1/health/ready', async (_req, res, next) => {
+    try {
+      const report = await readinessReport(selection.registry);
+      res.status(report.status === 'not_ready' ? 503 : 200).json(report);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get('/api/v1/health', async (_req, res) => {
     const db = await databaseHealth();
@@ -175,8 +232,19 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }));
-  const errorHandler: ErrorRequestHandler = (_err, _req, res, _next) =>
+  const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
+    logger.error(
+      {
+        module: 'api',
+        correlationId: res.locals.requestId,
+        method: req.method,
+        route: req.baseUrl + (req.route?.path ?? ''),
+        err: error instanceof Error ? { name: error.name, message: error.message } : { message: 'unknown error' }
+      },
+      'unhandled_request_error'
+    );
     res.status(500).json({ error: 'Internal server error' });
+  };
   app.use(errorHandler);
   return app;
 }

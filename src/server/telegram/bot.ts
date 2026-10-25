@@ -1,6 +1,9 @@
 import { Bot } from 'grammy';
+import { moduleLogger } from '../logging/logger.js';
 import { defaultProviderSelection } from '../providers/factory.js';
 import { MarketService } from '../services/market.js';
+
+const log = moduleLogger('telegram');
 
 const selection = defaultProviderSelection();
 const providers = selection.registry;
@@ -49,8 +52,15 @@ export function createTelegramBot(token: string) {
     ctx.reply(statuses.map((s) => `${s.provider}: ${s.state}\n${s.message}`).join('\n\n'));
   });
   bot.catch((error) => {
-    console.error(
-      JSON.stringify({ level: 'error', event: 'telegram_update_failed', error: String(error.error).slice(0, 160) })
+    // Only the error class is logged: Telegram update payloads may contain user content.
+    const cause = (error as { error?: unknown }).error;
+    log.error(
+      {
+        handler: 'bot.catch',
+        errorClass: cause instanceof Error ? cause.name : typeof cause,
+        errorMessage: cause instanceof Error ? cause.message.slice(0, 160) : 'unknown telegram error'
+      },
+      'telegram_update_failed'
     );
   });
   return bot;
@@ -58,7 +68,7 @@ export function createTelegramBot(token: string) {
 export async function startTelegramBot(token: string) {
   const bot = createTelegramBot(token);
   await bot.start({
-    onStart: (info) => console.log(JSON.stringify({ event: 'telegram_started', username: info.username }))
+    onStart: (info) => log.info({ botUsername: info.username }, 'telegram_started')
   });
   return bot;
 }
