@@ -66,7 +66,11 @@ export function createApp(options: AppOptions = {}) {
           `${req.method} ${req.url?.split('?')[0] ?? ''} ${res.statusCode}`,
         serializers: {
           // Paths are logged without query strings; no headers, cookies or bodies are kept.
-          req: (req: IncomingMessage) => ({ method: req.method, path: req.url?.split('?')[0] }),
+          req: (req: IncomingMessage) => ({
+            method: req.method,
+            path: req.url?.split('?')[0],
+            correlationId: (req as IncomingMessage & { id?: string }).id
+          }),
           res: (res: ServerResponse) => ({ statusCode: res.statusCode })
         }
       })

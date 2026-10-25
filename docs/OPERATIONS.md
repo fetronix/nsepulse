@@ -8,6 +8,45 @@
 - Keep one API process for low traffic; use a separate one-instance Telegram polling process when enabled. Do not share one bot token among polling instances.
 - The optional scheduler uses PostgreSQL advisory lock to avoid concurrent heartbeat work. No market ingestion is scheduled yet.
 
+## Containers
+
+`Dockerfile` is a three-stage build (build → production dependencies → runtime). The runtime image:
+
+- runs as the unprivileged `node` user,
+- installs production dependencies only (`npm ci --omit=dev`),
+- contains compiled JavaScript, the Drizzle migrations folder and the OpenAPI document — no source, tests, dev dependencies, `.env` file or secrets,
+- declares a `HEALTHCHECK` against `GET /api/v1/health/live`,
+- applies migrations only when `RUN_MIGRATIONS=true`, so multiple replicas can start without racing.
+
+Build and run locally (no production database or credentials required):
+
+```bash
+docker build -t nse-pulse .
+docker run --rm -p 127.0.0.1:4000:4000 \
+  -e MARKET_DATA_PROVIDER=none \
+  nse-pulse
+curl -s http://127.0.0.1:4000/api/v1/health/ready
+```
+
+With PostgreSQL via Compose:
+
+```bash
+docker compose up -d db                      # disposable local database on 127.0.0.1:5432
+npm ci && npm run db:migrate                 # migrate from the host
+npm run dev                                  # API + Vite with hot reload
+# or run the whole stack in containers:
+docker compose up --build
+```
+
+Disposable integration-test database:
+
+```bash
+docker compose --profile test up -d db-test
+TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration
+```
+
+Preview mode (`MARKET_DATA_PROVIDER=demo` + `ALLOW_DEMO_MARKET_DATA=true`) is refused when `NODE_ENV=production`, so the container cannot serve synthetic fixtures even if the variables are supplied.
+
 ## Build and start
 
 ```bash

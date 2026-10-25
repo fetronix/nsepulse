@@ -4,3 +4,7 @@ coverage/
 package-lock.json
 drizzle/generated/
 src/client/ui/styles.css
+Dockerfile
+docker-compose.yml
+.dockerignore
+.github/workflows/

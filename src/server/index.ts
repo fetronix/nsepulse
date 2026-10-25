@@ -13,7 +13,6 @@ const server = app.listen(config.PORT, config.HOST, () => {
       module: 'server',
       host: config.HOST,
       port: config.PORT,
-      env: config.NODE_ENV,
       databaseConfigured: Boolean(config.DATABASE_URL),
       schedulerEnabled: config.ENABLE_SCHEDULER === 'true' && Boolean(config.DATABASE_URL)
     },
