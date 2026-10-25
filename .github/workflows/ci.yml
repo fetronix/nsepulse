@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default: no job may write to the repository unless it opts in.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  CI: 'true'
+
+jobs:
+  quality:
+    name: Type check, lint and formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies (clean, reproducible)
+        run: npm ci
+      - name: Type check (client and server)
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Formatting check
+        run: npm run format:check
+
+  test:
+    name: Unit and API tests with coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Run tests with coverage (thresholds enforced)
+        run: npm run test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: warn
+
+  build:
+    name: Production builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build web bundle and server output
+        run: |
+          npm run build
+          npm run build:api
+      - name: Verify server entrypoint exists
+        run: test -f dist/server/index.js
+
+  integration:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Disposable, test-only database and credentials. No production data is used.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nse_pulse_test
+          POSTGRES_PASSWORD: nse_pulse_test
+          POSTGRES_DB: nse_pulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nse_pulse_test -d nse_pulse_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://nse_pulse_test:nse_pulse_test@127.0.0.1:5432/nse_pulse_test
+      DATABASE_URL: ''
+      DATABASE_SSL: 'false'
+      MARKET_DATA_PROVIDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations to the disposable database
+        run: DATABASE_URL="$TEST_DATABASE_URL" npm run db:migrate
+      - name: Run integration tests
+        run: npm run test:integration
+      - name: Verify migration idempotency
+        run: DATABASE_URL="$TEST_DATABASE_URL" npm run db:migrate
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: npm audit (high and critical)
+        run: npm audit --audit-level=high
+      - name: Verify no tracked .env files contain secrets
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+            echo "::error::Tracked .env file detected; secrets must never be committed."
+            exit 1
+          fi
