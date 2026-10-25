@@ -39,9 +39,10 @@ export const isDatabaseConfigured = Boolean(config.DATABASE_URL);
  * Demo fixtures are only reachable with an explicit opt-in, and never in production.
  * Credential presence alone never enables a live adapter.
  */
-export const isDemoMarketDataActive = config.MARKET_DATA_PROVIDER.trim().toLowerCase() === 'demo'
-  && config.ALLOW_DEMO_MARKET_DATA === 'true'
-  && config.NODE_ENV !== 'production';
+export const isDemoMarketDataActive =
+  config.MARKET_DATA_PROVIDER.trim().toLowerCase() === 'demo' &&
+  config.ALLOW_DEMO_MARKET_DATA === 'true' &&
+  config.NODE_ENV !== 'production';
 
 /** A configured base URL/key is not a working integration; an adapter must still be implemented. */
 export const isNseAdapterConfigured = false;

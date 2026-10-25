@@ -19,9 +19,27 @@ export interface DemoFixture {
  * be described as live, delayed or end-of-day market observations.
  */
 export const demoFixtures: readonly DemoFixture[] = [
-  { symbol: 'SCOM', name: 'Demo fixture — telecommunications listing', sector: 'DEMO FIXTURE', price: 0.01, closes: [0.01, 0.0101, 0.0099, 0.0102, 0.0101, 0.0103, 0.0102, 0.0104] },
-  { symbol: 'EQTY', name: 'Demo fixture — banking listing', sector: 'DEMO FIXTURE', price: 0.02, closes: [0.02, 0.0198, 0.0201, 0.0199, 0.0202, 0.0203, 0.0201, 0.0204] },
-  { symbol: 'KEGN', name: 'Demo fixture — energy listing', sector: 'DEMO FIXTURE', price: 0.03, closes: [0.03, 0.0302, 0.0298, 0.0301, 0.0303, 0.0301, 0.0304, 0.0302] }
+  {
+    symbol: 'SCOM',
+    name: 'Demo fixture — telecommunications listing',
+    sector: 'DEMO FIXTURE',
+    price: 0.01,
+    closes: [0.01, 0.0101, 0.0099, 0.0102, 0.0101, 0.0103, 0.0102, 0.0104]
+  },
+  {
+    symbol: 'EQTY',
+    name: 'Demo fixture — banking listing',
+    sector: 'DEMO FIXTURE',
+    price: 0.02,
+    closes: [0.02, 0.0198, 0.0201, 0.0199, 0.0202, 0.0203, 0.0201, 0.0204]
+  },
+  {
+    symbol: 'KEGN',
+    name: 'Demo fixture — energy listing',
+    sector: 'DEMO FIXTURE',
+    price: 0.03,
+    closes: [0.03, 0.0302, 0.0298, 0.0301, 0.0303, 0.0301, 0.0304, 0.0302]
+  }
 ];
 
 export function findDemoFixture(symbol: string): DemoFixture | null {

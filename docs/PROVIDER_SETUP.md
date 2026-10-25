@@ -10,12 +10,12 @@ At this implementation version there is **no verified programmatic NSE API contr
 
 `MARKET_DATA_PROVIDER` is evaluated in `src/server/providers/factory.ts`:
 
-| Value | Adapter | Behaviour |
-| --- | --- | --- |
-| `none` (default) | `UnconfiguredProvider` | No request, `null` quote, empty history, `UNCONFIGURED`/`UNKNOWN`. |
-| `demo` | `DemoFixtureProvider` | Only when `ALLOW_DEMO_MARKET_DATA=true` and `NODE_ENV` is not `production`. Synthetic labelled fixtures. |
-| `nse-vendor` | `VendorPendingProvider` | Placeholder. Reports missing pieces; **never** makes a request, even with credentials present. |
-| anything else | `UnconfiguredProvider` | Unknown value is ignored with an explicit warning; no provider is enabled. |
+| Value            | Adapter                 | Behaviour                                                                                                |
+| ---------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `none` (default) | `UnconfiguredProvider`  | No request, `null` quote, empty history, `UNCONFIGURED`/`UNKNOWN`.                                       |
+| `demo`           | `DemoFixtureProvider`   | Only when `ALLOW_DEMO_MARKET_DATA=true` and `NODE_ENV` is not `production`. Synthetic labelled fixtures. |
+| `nse-vendor`     | `VendorPendingProvider` | Placeholder. Reports missing pieces; **never** makes a request, even with credentials present.           |
+| anything else    | `UnconfiguredProvider`  | Unknown value is ignored with an explicit warning; no provider is enabled.                               |
 
 `MARKET_DATA_PROVIDER=none` remains the enforced default. Credential presence never changes state to `READY`; only a written contract plus an implemented, contract-tested adapter may do that, and the current code contains no such adapter.
 
@@ -28,10 +28,10 @@ interface MarketDataProvider {
   readonly id: string;
   readonly demo: boolean;
   status(): Promise<ProviderStatus>;
-  capabilities(): ProviderCapabilities;       // display name, version, access level, entitlement, declared coverage
+  capabilities(): ProviderCapabilities; // display name, version, access level, entitlement, declared coverage
   getLatestQuote(request: QuoteRequest): Promise<MarketObservation | null>;
   getHistory(request: HistoricalRequest): Promise<MarketObservation[]>;
-  selfTest(now?: Date): Promise<ProviderSelfTest>;  // local checks; reports whether a network call was made
+  selfTest(now?: Date): Promise<ProviderSelfTest>; // local checks; reports whether a network call was made
 }
 ```
 
@@ -80,12 +80,12 @@ The dashboard page **Provider setup** (`GET /api/v1/providers/configuration`) sh
 
 Historical records and official announcements do **not** depend on the live quote adapter, but each keeps its own permission and freshness label (`GET /api/v1/data-sources`):
 
-| Source | Independence | Freshness label | Permission gate |
-| --- | --- | --- | --- |
-| Stored historical sessions (`/history`, `/technicals`) | Yes | `END_OF_DAY` | `HISTORICAL_DATA_PERMISSION_CONFIRMED=true` |
-| Official company announcements (`/announcements`) | Yes | `AS_PUBLISHED` | `ANNOUNCEMENTS_PERMISSION_CONFIRMED=true` plus an enabled `ISSUER_ANNOUNCEMENT` row in `news_sources` |
-| Security master (`/securities`) | Yes | `REFERENCE` | Operator-initiated reviewed import |
-| Live/delayed quote feed | No | `UNKNOWN` | Contract + implemented adapter |
+| Source                                                 | Independence | Freshness label | Permission gate                                                                                       |
+| ------------------------------------------------------ | ------------ | --------------- | ----------------------------------------------------------------------------------------------------- |
+| Stored historical sessions (`/history`, `/technicals`) | Yes          | `END_OF_DAY`    | `HISTORICAL_DATA_PERMISSION_CONFIRMED=true`                                                           |
+| Official company announcements (`/announcements`)      | Yes          | `AS_PUBLISHED`  | `ANNOUNCEMENTS_PERMISSION_CONFIRMED=true` plus an enabled `ISSUER_ANNOUNCEMENT` row in `news_sources` |
+| Security master (`/securities`)                        | Yes          | `REFERENCE`     | Operator-initiated reviewed import                                                                    |
+| Live/delayed quote feed                                | No           | `UNKNOWN`       | Contract + implemented adapter                                                                        |
 
 `/api/v1/history/:symbol` and `/api/v1/technicals/:symbol` are withheld (empty items plus an explicit reason and `permission.status = UNCONFIRMED`) until the historical attestation is set. Demo fixtures are labelled and exempt from the historical gate. Announcement records are registered by an operator, not fetched by the application. Once written permission is on file, enable a source row (the URL columns must be the official pages you actually reviewed, never guesses):
 

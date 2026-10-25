@@ -6,7 +6,12 @@ import { DemoFixtureProvider } from '../../src/server/providers/demo.js';
 import { VendorPendingProvider } from '../../src/server/providers/vendor-pending.js';
 import { ProviderConfigurationService } from '../../src/server/services/provider-config.js';
 
-const demoEnv: ProviderSettings = { ...DEFAULT_PROVIDER_SETTINGS, provider: 'demo', allowDemoData: true, nodeEnv: 'development' };
+const demoEnv: ProviderSettings = {
+  ...DEFAULT_PROVIDER_SETTINGS,
+  provider: 'demo',
+  allowDemoData: true,
+  nodeEnv: 'development'
+};
 
 function serviceFor(settings: ProviderSettings) {
   const selection = createProviderSelection(settings);
@@ -44,7 +49,12 @@ describe('provider selection defaults', () => {
   });
 
   it('does not enable a vendor adapter from credential presence alone', async () => {
-    const { selection } = serviceFor({ ...DEFAULT_PROVIDER_SETTINGS, provider: 'nse-vendor', vendorBaseUrlConfigured: true, vendorApiKeyConfigured: true });
+    const { selection } = serviceFor({
+      ...DEFAULT_PROVIDER_SETTINGS,
+      provider: 'nse-vendor',
+      vendorBaseUrlConfigured: true,
+      vendorApiKeyConfigured: true
+    });
     expect(selection.provider).toBeInstanceOf(VendorPendingProvider);
     expect((await selection.provider.status()).state).toBe('UNCONFIGURED');
     expect(await selection.provider.getLatestQuote({ symbol: 'SCOM' })).toBeNull();
@@ -108,7 +118,12 @@ describe('provider configuration view', () => {
   });
 
   it('never includes credential values, only presence', async () => {
-    const { service } = serviceFor({ ...DEFAULT_PROVIDER_SETTINGS, provider: 'nse-vendor', vendorBaseUrlConfigured: true, vendorApiKeyConfigured: true });
+    const { service } = serviceFor({
+      ...DEFAULT_PROVIDER_SETTINGS,
+      provider: 'nse-vendor',
+      vendorBaseUrlConfigured: true,
+      vendorApiKeyConfigured: true
+    });
     const view = await service.view();
     expect(view.credentials.map((credential) => credential.state)).toEqual(['CONFIGURED', 'CONFIGURED']);
     expect(view.credentials[1]!.note).toContain('never returned');

@@ -1,7 +1,13 @@
 import type { MarketObservation, ProviderStatus, ProviderTestResult } from '../../shared/domain.js';
 import { validateObservation } from '../market/quality.js';
 import { DEMO_SOURCE_LABEL, demoFixtures, demoHistory, demoQuote, findDemoFixture } from './demo-fixtures.js';
-import type { HistoricalRequest, MarketDataProvider, ProviderCapabilities, ProviderSelfTest, QuoteRequest } from './types.js';
+import type {
+  HistoricalRequest,
+  MarketDataProvider,
+  ProviderCapabilities,
+  ProviderSelfTest,
+  QuoteRequest
+} from './types.js';
 
 /**
  * Development-only fixture adapter.
@@ -46,7 +52,8 @@ export class DemoFixtureProvider implements MarketDataProvider {
       provider: this.id,
       configured: false,
       state: 'DEMO',
-      message: 'Demo fixture adapter active. Synthetic development data only — no NSE market-data access, entitlement or licensing exists.',
+      message:
+        'Demo fixture adapter active. Synthetic development data only — no NSE market-data access, entitlement or licensing exists.',
       lastSuccessAt: null,
       dataMode: 'UNKNOWN',
       displayName: this.capabilities().displayName,
@@ -68,10 +75,12 @@ export class DemoFixtureProvider implements MarketDataProvider {
   async selfTest(now = new Date()): Promise<ProviderSelfTest> {
     const checks = demoFixtures.map((fixture) => {
       const observation = demoQuote(fixture.symbol, now);
-      const result = observation ? validateObservation(observation, now) : { accepted: false, reasons: ['Fixture missing'] };
+      const result = observation
+        ? validateObservation(observation, now)
+        : { accepted: false, reasons: ['Fixture missing'] };
       return {
         name: `Fixture ${fixture.symbol}`,
-        status: result.accepted ? 'PASSED' as const : 'FAILED' as const,
+        status: result.accepted ? ('PASSED' as const) : ('FAILED' as const),
         detail: result.accepted
           ? 'Synthetic fixture passes local validation. It is not market data.'
           : `Fixture rejected: ${result.reasons.join('; ')}`
@@ -99,8 +108,16 @@ export class DemoFixtureProvider implements MarketDataProvider {
       networkCallMade: false,
       checks: [
         ...checks,
-        { name: 'Demo labelling', status: 'PASSED', detail: `Every observation carries source "${DEMO_SOURCE_LABEL}", dataMode UNKNOWN and demo=true.` },
-        { name: 'Guaranteed non-live mode', status: 'PASSED', detail: 'Fixture quotes are never labelled real-time, delayed or end-of-day.' }
+        {
+          name: 'Demo labelling',
+          status: 'PASSED',
+          detail: `Every observation carries source "${DEMO_SOURCE_LABEL}", dataMode UNKNOWN and demo=true.`
+        },
+        {
+          name: 'Guaranteed non-live mode',
+          status: 'PASSED',
+          detail: 'Fixture quotes are never labelled real-time, delayed or end-of-day.'
+        }
       ]
     };
     return { connection, dataValidation };

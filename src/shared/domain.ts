@@ -172,12 +172,7 @@ export interface DataSourcePermission {
 export type SourceFreshness = 'REAL_TIME' | 'DELAYED' | 'END_OF_DAY' | 'AS_PUBLISHED' | 'REFERENCE' | 'UNKNOWN';
 
 export type SourceAvailability =
-  | 'AVAILABLE'
-  | 'EMPTY'
-  | 'NOT_CONFIGURED'
-  | 'DISABLED'
-  | 'PERMISSION_BLOCKED'
-  | 'STORE_UNAVAILABLE';
+  'AVAILABLE' | 'EMPTY' | 'NOT_CONFIGURED' | 'DISABLED' | 'PERMISSION_BLOCKED' | 'STORE_UNAVAILABLE';
 
 export interface DataSourceView {
   id: string;

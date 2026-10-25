@@ -33,7 +33,8 @@ export function createProviderSelection(settings: ProviderSettings = DEFAULT_PRO
   let provider: MarketDataProvider;
   if (requestedProvider === 'none') {
     provider = new UnconfiguredProvider();
-    if (settings.allowDemoData) warnings.push('ALLOW_DEMO_MARKET_DATA is set but MARKET_DATA_PROVIDER is none, so no adapter is enabled.');
+    if (settings.allowDemoData)
+      warnings.push('ALLOW_DEMO_MARKET_DATA is set but MARKET_DATA_PROVIDER is none, so no adapter is enabled.');
   } else if (demoRequested) {
     if (productionBlocked) {
       demoBlockedReason = 'Demo market data cannot be enabled when NODE_ENV=production.';
@@ -43,17 +44,23 @@ export function createProviderSelection(settings: ProviderSettings = DEFAULT_PRO
       provider = new UnconfiguredProvider();
     } else {
       provider = new DemoFixtureProvider();
-      warnings.push('Demo fixture adapter is active. Every value is synthetic, is not NSE market data, and must not be presented as a real price.');
+      warnings.push(
+        'Demo fixture adapter is active. Every value is synthetic, is not NSE market data, and must not be presented as a real price.'
+      );
     }
   } else if (requestedProvider === 'nse-vendor') {
     provider = new VendorPendingProvider({
       baseUrlConfigured: settings.vendorBaseUrlConfigured,
       apiKeyConfigured: settings.vendorApiKeyConfigured
     });
-    warnings.push('MARKET_DATA_PROVIDER=nse-vendor, but no contracted adapter implementation exists. No outbound request will be made and no credential presence enables live data.');
+    warnings.push(
+      'MARKET_DATA_PROVIDER=nse-vendor, but no contracted adapter implementation exists. No outbound request will be made and no credential presence enables live data.'
+    );
   } else {
     provider = new UnconfiguredProvider();
-    warnings.push(`Unknown MARKET_DATA_PROVIDER value "${settings.provider}". Falling back to the disabled adapter; no provider is enabled.`);
+    warnings.push(
+      `Unknown MARKET_DATA_PROVIDER value "${settings.provider}". Falling back to the disabled adapter; no provider is enabled.`
+    );
   }
 
   if (demoRequested && demoBlockedReason) warnings.push(demoBlockedReason);

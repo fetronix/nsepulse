@@ -1,5 +1,11 @@
 import type { ProviderStatus, ProviderTestResult } from '../../shared/domain.js';
-import type { HistoricalRequest, MarketDataProvider, ProviderCapabilities, ProviderSelfTest, QuoteRequest } from './types.js';
+import type {
+  HistoricalRequest,
+  MarketDataProvider,
+  ProviderCapabilities,
+  ProviderSelfTest,
+  QuoteRequest
+} from './types.js';
 
 export interface VendorCredentialState {
   baseUrlConfigured: boolean;
@@ -26,7 +32,8 @@ export class VendorPendingProvider implements MarketDataProvider {
       entitlement: 'NONE',
       coverage: {
         state: 'NOT_DECLARED',
-        securitiesScope: 'Coverage is undeclared until the signed contract and API specification list the permitted securities.',
+        securitiesScope:
+          'Coverage is undeclared until the signed contract and API specification list the permitted securities.',
         symbols: null,
         symbolCount: null,
         fields: [],
@@ -60,8 +67,12 @@ export class VendorPendingProvider implements MarketDataProvider {
     };
   }
 
-  async getLatestQuote(_request: QuoteRequest): Promise<null> { return null; }
-  async getHistory(_request: HistoricalRequest): Promise<[]> { return []; }
+  async getLatestQuote(_request: QuoteRequest): Promise<null> {
+    return null;
+  }
+  async getHistory(_request: HistoricalRequest): Promise<[]> {
+    return [];
+  }
 
   async selfTest(now = new Date()): Promise<ProviderSelfTest> {
     const blocked = (kind: ProviderTestResult['kind'], summary: string): ProviderTestResult => ({
@@ -71,13 +82,32 @@ export class VendorPendingProvider implements MarketDataProvider {
       ranAt: now.toISOString(),
       networkCallMade: false,
       checks: [
-        { name: 'Contracted endpoint', status: 'BLOCKED', detail: this.credentials.baseUrlConfigured ? 'A base URL is configured, but no approved API specification or request implementation exists.' : 'No base URL configured and none is invented.' },
-        { name: 'Provider credentials', status: 'BLOCKED', detail: this.credentials.apiKeyConfigured ? 'A key is configured, but credentials alone do not establish an integration.' : 'No API key configured.' },
-        { name: 'Licensing approval', status: 'BLOCKED', detail: 'No written entitlement or redistribution approval is recorded.' }
+        {
+          name: 'Contracted endpoint',
+          status: 'BLOCKED',
+          detail: this.credentials.baseUrlConfigured
+            ? 'A base URL is configured, but no approved API specification or request implementation exists.'
+            : 'No base URL configured and none is invented.'
+        },
+        {
+          name: 'Provider credentials',
+          status: 'BLOCKED',
+          detail: this.credentials.apiKeyConfigured
+            ? 'A key is configured, but credentials alone do not establish an integration.'
+            : 'No API key configured.'
+        },
+        {
+          name: 'Licensing approval',
+          status: 'BLOCKED',
+          detail: 'No written entitlement or redistribution approval is recorded.'
+        }
       ]
     });
     return {
-      connection: blocked('CONNECTION', 'Connection test blocked: the vendor adapter is not implemented, so no request is attempted.'),
+      connection: blocked(
+        'CONNECTION',
+        'Connection test blocked: the vendor adapter is not implemented, so no request is attempted.'
+      ),
       dataValidation: blocked('DATA_VALIDATION', 'Data validation blocked: no provider payload exists to validate.')
     };
   }

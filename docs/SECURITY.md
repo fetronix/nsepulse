@@ -6,7 +6,7 @@
 - Explicit configured CORS origin (no wildcard credentialed CORS).
 - 32 KB JSON request limit; API rate limit.
 - Zod validation for symbol/date/pagination inputs.
-- Safe generic API error responses; no secret-bearing provider configuration is returned by health APIs. Provider configuration and test endpoints expose credential *presence* only — no field ever carries a secret value, and tests assert injected values never appear in responses.
+- Safe generic API error responses; no secret-bearing provider configuration is returned by health APIs. Provider configuration and test endpoints expose credential _presence_ only — no field ever carries a secret value, and tests assert injected values never appear in responses.
 - `POST /api/v1/providers/test` is rate limited (10/minute), performs local checks only and reports whether any outbound request was made; the bundled adapters make none.
 - Database secrets and Telegram token are environment-only; `.env` excluded from git.
 - SQL uses parameterized queries; Drizzle query builder for application reads.

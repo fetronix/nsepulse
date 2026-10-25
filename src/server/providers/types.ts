@@ -7,8 +7,15 @@ import type {
   ProviderTestResult
 } from '../../shared/domain.js';
 
-export interface QuoteRequest { symbol: string }
-export interface HistoricalRequest { symbol: string; from: Date; to: Date; interval: '1d' | '1w' | '1mo' }
+export interface QuoteRequest {
+  symbol: string;
+}
+export interface HistoricalRequest {
+  symbol: string;
+  from: Date;
+  to: Date;
+  interval: '1d' | '1w' | '1mo';
+}
 
 export interface ProviderCapabilities {
   displayName: string;
@@ -47,7 +54,8 @@ export interface MarketDataProvider {
 
 const NOT_DECLARED_COVERAGE: CoverageView = {
   state: 'NOT_DECLARED',
-  securitiesScope: 'Not declared. Coverage can only be stated after a signed contract and the provider API specification are available.',
+  securitiesScope:
+    'Not declared. Coverage can only be stated after a signed contract and the provider API specification are available.',
   symbols: null,
   symbolCount: null,
   fields: [],
@@ -82,7 +90,8 @@ export class UnconfiguredProvider implements MarketDataProvider {
       provider: this.id,
       configured: false,
       state: 'UNCONFIGURED',
-      message: 'Awaiting an authorized NSE or licensed vendor agreement, endpoint, credentials and permitted-use confirmation.',
+      message:
+        'Awaiting an authorized NSE or licensed vendor agreement, endpoint, credentials and permitted-use confirmation.',
       lastSuccessAt: null,
       dataMode: 'UNKNOWN',
       sourceUrl: 'https://www.nse.co.ke/dataservices/',
@@ -91,8 +100,12 @@ export class UnconfiguredProvider implements MarketDataProvider {
     };
   }
 
-  async getLatestQuote(_request: QuoteRequest): Promise<null> { return null; }
-  async getHistory(_request: HistoricalRequest): Promise<[]> { return []; }
+  async getLatestQuote(_request: QuoteRequest): Promise<null> {
+    return null;
+  }
+  async getHistory(_request: HistoricalRequest): Promise<[]> {
+    return [];
+  }
 
   async selfTest(now = new Date()): Promise<ProviderSelfTest> {
     const blocked = (kind: ProviderTestResult['kind'], summary: string): ProviderTestResult => ({
@@ -103,20 +116,36 @@ export class UnconfiguredProvider implements MarketDataProvider {
       networkCallMade: false,
       checks: [
         { name: 'Contracted endpoint', status: 'BLOCKED', detail: 'No endpoint has been supplied or invented.' },
-        { name: 'Provider credentials', status: 'BLOCKED', detail: 'No credentials are configured for a contracted adapter.' },
+        {
+          name: 'Provider credentials',
+          status: 'BLOCKED',
+          detail: 'No credentials are configured for a contracted adapter.'
+        },
         { name: 'Permitted use', status: 'BLOCKED', detail: 'No licensing or redistribution approval is recorded.' }
       ]
     });
     return {
-      connection: blocked('CONNECTION', 'Connection test not attempted: no contracted adapter, endpoint or credentials exist.'),
-      dataValidation: blocked('DATA_VALIDATION', 'Validation not attempted: no provider payload exists and none is simulated.')
+      connection: blocked(
+        'CONNECTION',
+        'Connection test not attempted: no contracted adapter, endpoint or credentials exist.'
+      ),
+      dataValidation: blocked(
+        'DATA_VALIDATION',
+        'Validation not attempted: no provider payload exists and none is simulated.'
+      )
     };
   }
 }
 
 export class ProviderRegistry {
   constructor(private readonly providers: MarketDataProvider[] = [new UnconfiguredProvider()]) {}
-  get primary(): MarketDataProvider { return this.providers[0]!; }
-  get all(): readonly MarketDataProvider[] { return this.providers; }
-  async statuses(): Promise<ProviderStatus[]> { return Promise.all(this.providers.map((provider) => provider.status())); }
+  get primary(): MarketDataProvider {
+    return this.providers[0]!;
+  }
+  get all(): readonly MarketDataProvider[] {
+    return this.providers;
+  }
+  async statuses(): Promise<ProviderStatus[]> {
+    return Promise.all(this.providers.map((provider) => provider.status()));
+  }
 }

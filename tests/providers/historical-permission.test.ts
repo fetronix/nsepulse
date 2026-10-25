@@ -13,12 +13,29 @@ const storedSession = {
 };
 
 vi.mock('../../src/server/db/repository.js', () => ({
-  findSecurityBySymbol: vi.fn(async () => ({ id: 'sec-1', symbol: 'SCOM', name: 'Safaricom PLC', exchange: 'NSE', instrumentType: 'EQUITY', listingStatus: 'LISTED', sector: 'Telecommunication', currency: 'KES' })),
+  findSecurityBySymbol: vi.fn(async () => ({
+    id: 'sec-1',
+    symbol: 'SCOM',
+    name: 'Safaricom PLC',
+    exchange: 'NSE',
+    instrumentType: 'EQUITY',
+    listingStatus: 'LISTED',
+    sector: 'Telecommunication',
+    currency: 'KES'
+  })),
   latestObservation: vi.fn(async () => null),
   historicalObservations: vi.fn(async () => [storedSession]),
   searchSecurities: vi.fn(async () => ({ items: [], total: 0 })),
   counts: vi.fn(async () => ({ securities: 1, observations: 0 })),
-  dataSnapshot: vi.fn(async () => ({ storeAvailable: true, securities: 1, observations: 0, historicalRows: 1, latestObservationEventAt: null, latestObservationIngestedAt: null, latestHistoricalSessionDate: '2026-10-20T00:00:00.000Z' })),
+  dataSnapshot: vi.fn(async () => ({
+    storeAvailable: true,
+    securities: 1,
+    observations: 0,
+    historicalRows: 1,
+    latestObservationEventAt: null,
+    latestObservationIngestedAt: null,
+    latestHistoricalSessionDate: '2026-10-20T00:00:00.000Z'
+  })),
   listIssuerAnnouncements: vi.fn(async () => [])
 }));
 

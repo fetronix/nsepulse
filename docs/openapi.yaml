@@ -21,7 +21,8 @@ paths:
       summary: Provider commissioning view
       description: Provider name and integration status, credential presence (never values), declared securities coverage, access level, last successful retrieval, connection/data-validation results and outstanding licensing.
       responses:
-        '200': { description: Explicit unconfigured or demo state; no endpoint, credential or live-data claim is invented }
+        '200':
+          { description: Explicit unconfigured or demo state; no endpoint, credential or live-data claim is invented }
   /providers/test:
     post:
       summary: Run local adapter connection and data-validation checks

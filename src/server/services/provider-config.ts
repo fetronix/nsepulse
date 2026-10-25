@@ -33,8 +33,10 @@ const ENTITLEMENT_LABELS: Record<EntitlementKind, string> = {
 };
 
 function accessDisclosure(demo: boolean, entitlement: EntitlementKind, level: DataMode): string {
-  if (demo) return 'Demo mode grants no market-data access. Fixture values are synthetic, carry dataMode UNKNOWN and are never labelled real-time, delayed or end-of-day.';
-  if (entitlement === 'CONTRACTED' && level !== 'UNKNOWN') return 'The displayed access level must come from the signed provider agreement and the provider API specification.';
+  if (demo)
+    return 'Demo mode grants no market-data access. Fixture values are synthetic, carry dataMode UNKNOWN and are never labelled real-time, delayed or end-of-day.';
+  if (entitlement === 'CONTRACTED' && level !== 'UNKNOWN')
+    return 'The displayed access level must come from the signed provider agreement and the provider API specification.';
   return 'No real-time, delayed or end-of-day access has been granted. The application shows no market prices and infers no data mode from credentials.';
 }
 
@@ -66,7 +68,11 @@ function credentials(settings: ProviderSettings, demo: boolean): CredentialView[
   ];
 }
 
-function licensingRequirements(settings: ProviderSettings, demo: boolean, contractDeclared: boolean): LicensingRequirement[] {
+function licensingRequirements(
+  settings: ProviderSettings,
+  demo: boolean,
+  contractDeclared: boolean
+): LicensingRequirement[] {
   const marketDataStatus = demo ? 'NOT_APPLICABLE' : 'OUTSTANDING';
   return [
     {
@@ -80,15 +86,24 @@ function licensingRequirements(settings: ProviderSettings, demo: boolean, contra
     },
     {
       id: 'api-specification',
-      requirement: 'Official API specification: authentication, field semantics, timestamps, revisions, rate limits and error codes',
+      requirement:
+        'Official API specification: authentication, field semantics, timestamps, revisions, rate limits and error codes',
       status: demo ? 'NOT_APPLICABLE' : contractDeclared ? 'SATISFIED' : 'OUTSTANDING',
       blocking: !demo && !contractDeclared,
-      detail: demo ? 'Demo fixtures use a local, synthetic contract only.' : 'No specification is assumed. An adapter must not be written against a guessed contract.'
+      detail: demo
+        ? 'Demo fixtures use a local, synthetic contract only.'
+        : 'No specification is assumed. An adapter must not be written against a guessed contract.'
     },
     {
       id: 'credentials',
       requirement: 'Credential issuance, server-side storage and rotation procedure',
-      status: demo ? 'NOT_APPLICABLE' : contractDeclared ? 'SATISFIED' : settings.vendorApiKeyConfigured ? 'IN_PROGRESS' : 'OUTSTANDING',
+      status: demo
+        ? 'NOT_APPLICABLE'
+        : contractDeclared
+          ? 'SATISFIED'
+          : settings.vendorApiKeyConfigured
+            ? 'IN_PROGRESS'
+            : 'OUTSTANDING',
       blocking: !demo && !contractDeclared,
       detail: demo
         ? 'Demo mode accepts no credentials.'
@@ -101,7 +116,9 @@ function licensingRequirements(settings: ProviderSettings, demo: boolean, contra
       requirement: 'Approved attribution wording and notice obligations',
       status: demo ? 'NOT_APPLICABLE' : contractDeclared ? 'SATISFIED' : 'OUTSTANDING',
       blocking: !demo && !contractDeclared,
-      detail: demo ? 'Demo fixtures must remain unmistakably labelled as synthetic.' : 'Attribution wording must be approved in writing before publication.'
+      detail: demo
+        ? 'Demo fixtures must remain unmistakably labelled as synthetic.'
+        : 'Attribution wording must be approved in writing before publication.'
     },
     {
       id: 'historical-rights',
@@ -194,12 +211,14 @@ export class ProviderConfigurationService {
         persistedLatestObservationAt: persisted.latestObservationEventAt,
         persistedLatestIngestionAt: persisted.latestObservationIngestedAt,
         persistedHistoricalThrough: persisted.latestHistoricalSessionDate,
-        trackingNote: 'Adapter attempts and test results are held in memory and reset when the API process restarts. Persisted timestamps come from the application database.'
+        trackingNote:
+          'Adapter attempts and test results are held in memory and reset when the API process restarts. Persisted timestamps come from the application database.'
       },
       tests: {
         connection: snapshot.connection,
         dataValidation: snapshot.dataValidation,
-        runNote: 'Running tests performs local checks only. No outbound request is made unless a contracted adapter has been implemented and explicitly enabled.'
+        runNote:
+          'Running tests performs local checks only. No outbound request is made unless a contracted adapter has been implemented and explicitly enabled.'
       },
       licensing: licensingRequirements(selection.settings, demo, contractDeclared),
       warnings: selection.warnings,

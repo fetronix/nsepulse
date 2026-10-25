@@ -24,7 +24,11 @@ describe('technical indicators use observation counts', () => {
     expect(macd([1, 2, 3], 2, 3, 2).macd).toBeNull();
   });
   it('uses true range and annualized sample log-return volatility', () => {
-    const candles = [{ close: 10, high: 11, low: 9 }, { close: 11, high: 12, low: 10 }, { close: 12, high: 13, low: 11 }];
+    const candles = [
+      { close: 10, high: 11, low: 9 },
+      { close: 11, high: 12, low: 10 },
+      { close: 12, high: 13, low: 11 }
+    ];
     expect(atr(candles, 2).value).toBe(2);
     expect(historicalVolatility([100, 101, 100]).value).toBeGreaterThan(0);
     expect(historicalVolatility([100, 100, 100]).value).toBe(0);

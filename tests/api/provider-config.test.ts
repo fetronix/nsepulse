@@ -37,7 +37,12 @@ describe('provider configuration endpoints', () => {
 
   it('lists independent sources with explicit permissions and freshness', async () => {
     const response = await request(app).get('/api/v1/data-sources').expect(200);
-    const items = response.body.items as { id: string; independentOfLiveQuoteAdapter: boolean; permission: { status: string }; freshness: { label: string } }[];
+    const items = response.body.items as {
+      id: string;
+      independentOfLiveQuoteAdapter: boolean;
+      permission: { status: string };
+      freshness: { label: string };
+    }[];
     const historical = items.find((item) => item.id === 'historical-eod');
     const announcements = items.find((item) => item.id === 'issuer-announcements');
     const live = items.find((item) => item.id === 'live-quotes');

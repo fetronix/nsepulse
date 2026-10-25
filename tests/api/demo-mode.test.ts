@@ -5,7 +5,12 @@ import { closeDatabase } from '../../src/server/db/client.js';
 import { createProviderSelection } from '../../src/server/providers/factory.js';
 import { DEFAULT_PROVIDER_SETTINGS } from '../../src/server/providers/settings.js';
 
-const selection = createProviderSelection({ ...DEFAULT_PROVIDER_SETTINGS, provider: 'demo', allowDemoData: true, nodeEnv: 'development' });
+const selection = createProviderSelection({
+  ...DEFAULT_PROVIDER_SETTINGS,
+  provider: 'demo',
+  allowDemoData: true,
+  nodeEnv: 'development'
+});
 const app = createApp({ selection });
 afterAll(async () => closeDatabase());
 
@@ -38,7 +43,12 @@ describe('development demo mode', () => {
     const response = await request(app).get('/api/v1/securities').expect(200);
     expect(response.body.demo).toBe(true);
     expect(response.body.items.length).toBe(3);
-    expect(response.body.items.every((item: { instrumentType: string; listingStatus: string }) => item.instrumentType === 'DEMO_FIXTURE' && item.listingStatus === 'DEMO_ONLY')).toBe(true);
+    expect(
+      response.body.items.every(
+        (item: { instrumentType: string; listingStatus: string }) =>
+          item.instrumentType === 'DEMO_FIXTURE' && item.listingStatus === 'DEMO_ONLY'
+      )
+    ).toBe(true);
     expect(response.body.note).toContain('synthetic');
     const filtered = await request(app).get('/api/v1/securities?q=EQTY').expect(200);
     expect(filtered.body.items.map((item: { symbol: string }) => item.symbol)).toEqual(['EQTY']);
@@ -54,7 +64,11 @@ describe('development demo mode', () => {
   it('serves demo history and technicals with explicit demo provenance', async () => {
     const history = await request(app).get('/api/v1/history/SCOM').expect(200);
     expect(history.body.items.length).toBeGreaterThan(0);
-    expect(history.body.items.every((item: { demo: boolean; source: string }) => item.demo && item.source.includes(DEMO_SOURCE))).toBe(true);
+    expect(
+      history.body.items.every(
+        (item: { demo: boolean; source: string }) => item.demo && item.source.includes(DEMO_SOURCE)
+      )
+    ).toBe(true);
     expect(history.body.provenance.kind).toBe('DEMO_FIXTURE');
     const technicals = await request(app).get('/api/v1/technicals/SCOM').expect(200);
     expect(technicals.body.observationCount).toBe(8);
@@ -74,7 +88,9 @@ describe('development demo mode', () => {
     expect(tested.body.configuration.tests.connection.status).toBe('NOT_APPLICABLE');
     expect(tested.body.configuration.tests.dataValidation.status).toBe('PASSED');
     const sources = await request(app).get('/api/v1/data-sources').expect(200);
-    const live = (sources.body.items as { id: string; availability: { state: string } }[]).find((item) => item.id === 'live-quotes');
+    const live = (sources.body.items as { id: string; availability: { state: string } }[]).find(
+      (item) => item.id === 'live-quotes'
+    );
     expect(live?.availability.state).toBe('DISABLED');
   });
 });

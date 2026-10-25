@@ -1,6 +1,12 @@
 import type { DataMode, MarketObservation, SecuritySummary } from '../../shared/domain.js';
 import type { ProviderRegistry } from '../providers/types.js';
-import { findSecurityBySymbol, latestObservation, historicalObservations, searchSecurities, counts } from '../db/repository.js';
+import {
+  findSecurityBySymbol,
+  latestObservation,
+  historicalObservations,
+  searchSecurities,
+  counts
+} from '../db/repository.js';
 import { isStale } from '../market/quality.js';
 import { atr, ema, historicalVolatility, macd, rsi, sma } from '../market/indicators.js';
 import { DEMO_SOURCE_LABEL, demoFixtures, findDemoFixture } from '../providers/demo-fixtures.js';
@@ -17,11 +23,20 @@ export interface MarketServiceOptions {
 
 function historicalPermission(confirmed: boolean) {
   return confirmed
-    ? { status: 'GRANTED' as const, basis: 'Operator-confirmed written permission for stored historical display and derived analytics.' }
-    : { status: 'UNCONFIRMED' as const, basis: 'No written historical display/retention permission is recorded in the application.' };
+    ? {
+        status: 'GRANTED' as const,
+        basis: 'Operator-confirmed written permission for stored historical display and derived analytics.'
+      }
+    : {
+        status: 'UNCONFIRMED' as const,
+        basis: 'No written historical display/retention permission is recorded in the application.'
+      };
 }
 
-const DEMO_PERMISSION = { status: 'NOT_APPLICABLE' as const, basis: 'Demo fixtures are synthetic and are not sourced market data.' };
+const DEMO_PERMISSION = {
+  status: 'NOT_APPLICABLE' as const,
+  basis: 'Demo fixtures are synthetic and are not sourced market data.'
+};
 
 type Provenance = {
   kind: 'DEMO_FIXTURE' | 'STORED_OBSERVATION' | 'UNAVAILABLE';
@@ -39,7 +54,8 @@ function demoProvenance(): Provenance {
     liveQuoteAdapterEnabled: false,
     dataMode: 'UNKNOWN',
     source: DEMO_SOURCE_LABEL,
-    freshnessNote: 'Fixture values carry no market event timestamp and must never be described as live, delayed or end-of-day.'
+    freshnessNote:
+      'Fixture values carry no market event timestamp and must never be described as live, delayed or end-of-day.'
   };
 }
 
@@ -82,12 +98,18 @@ export class MarketService {
   private readonly runtime: ProviderRuntime;
   private readonly historicalPermissionConfirmed: boolean;
 
-  constructor(private readonly providers: ProviderRegistry, options: MarketServiceOptions = {}) {
+  constructor(
+    private readonly providers: ProviderRegistry,
+    options: MarketServiceOptions = {}
+  ) {
     this.runtime = options.runtime ?? new ProviderRuntime();
-    this.historicalPermissionConfirmed = options.historicalPermissionConfirmed ?? providerSettingsFromEnv().historicalPermissionConfirmed;
+    this.historicalPermissionConfirmed =
+      options.historicalPermissionConfirmed ?? providerSettingsFromEnv().historicalPermissionConfirmed;
   }
 
-  private get demoActive(): boolean { return this.providers.primary.demo; }
+  private get demoActive(): boolean {
+    return this.providers.primary.demo;
+  }
 
   async overview() {
     const stats = await counts();
@@ -124,7 +146,9 @@ export class MarketService {
   async securities(query: string, limit: number, offset: number) {
     if (this.demoActive) {
       const needle = query.trim().toUpperCase();
-      const matches = demoFixtures.filter((fixture) => !needle || fixture.symbol.includes(needle) || fixture.name.toUpperCase().includes(needle));
+      const matches = demoFixtures.filter(
+        (fixture) => !needle || fixture.symbol.includes(needle) || fixture.name.toUpperCase().includes(needle)
+      );
       const items = matches.slice(offset, offset + limit).map((fixture) => ({
         id: `demo:${fixture.symbol}`,
         symbol: fixture.symbol,
@@ -135,7 +159,12 @@ export class MarketService {
         sector: 'DEMO FIXTURE',
         demo: true
       }));
-      return { items, total: matches.length, demo: true, note: 'Demo fixtures only — synthetic records, not a security master.' };
+      return {
+        items,
+        total: matches.length,
+        demo: true,
+        note: 'Demo fixtures only — synthetic records, not a security master.'
+      };
     }
     return searchSecurities(query, limit, offset);
   }
@@ -149,7 +178,8 @@ export class MarketService {
         return {
           security: null,
           observation: null,
-          reason: 'This symbol is not one of the demo fixtures. Demo mode never returns real securities, quotes or prices.',
+          reason:
+            'This symbol is not one of the demo fixtures. Demo mode never returns real securities, quotes or prices.',
           provenance: demoProvenance(),
           warnings: [DEMO_NOTICE]
         };
@@ -165,9 +195,23 @@ export class MarketService {
     }
 
     const security = await findSecurityBySymbol(symbol);
-    if (!security) return { security: null, observation: null, reason: 'Security not found in the configured security master.', provenance: null, warnings: [] };
+    if (!security)
+      return {
+        security: null,
+        observation: null,
+        reason: 'Security not found in the configured security master.',
+        provenance: null,
+        warnings: []
+      };
     const row = await latestObservation(security.id);
-    if (!row) return { security, observation: null, reason: 'No verified market observations are available.', provenance: null, warnings: [] };
+    if (!row)
+      return {
+        security,
+        observation: null,
+        reason: 'No verified market observations are available.',
+        provenance: null,
+        warnings: []
+      };
     const eventAt = row.marketEventAt?.toISOString() ?? null;
     const stale = isStale(eventAt);
     return {
@@ -192,16 +236,40 @@ export class MarketService {
 
   async technicals(symbol: string) {
     if (this.demoActive) {
-      const demoRows = await this.providers.primary.getHistory({ symbol, from: new Date(0), to: new Date(), interval: '1d' });
+      const demoRows = await this.providers.primary.getHistory({
+        symbol,
+        from: new Date(0),
+        to: new Date(),
+        interval: '1d'
+      });
       if (!demoRows.length) {
-        return { security: null, items: [], reason: 'This symbol is not one of the demo fixtures, so no demo series exists.', provenance: demoProvenance(), warnings: [DEMO_NOTICE] };
+        return {
+          security: null,
+          items: [],
+          reason: 'This symbol is not one of the demo fixtures, so no demo series exists.',
+          provenance: demoProvenance(),
+          warnings: [DEMO_NOTICE]
+        };
       }
-      const series = demoRows.map((row) => ({ sessionAt: new Date(row.marketEventAt ?? row.ingestedAt), close: row.price, high: row.high ?? null, low: row.low ?? null, volume: row.volume ?? null }));
-      return { ...this.technicalsFromSeries(demoSecurity(symbol), series, demoProvenance(), [DEMO_NOTICE, 'Demo series are synthetic and too short for most indicator periods; blank indicator values are expected.']), permission: DEMO_PERMISSION };
+      const series = demoRows.map((row) => ({
+        sessionAt: new Date(row.marketEventAt ?? row.ingestedAt),
+        close: row.price,
+        high: row.high ?? null,
+        low: row.low ?? null,
+        volume: row.volume ?? null
+      }));
+      return {
+        ...this.technicalsFromSeries(demoSecurity(symbol), series, demoProvenance(), [
+          DEMO_NOTICE,
+          'Demo series are synthetic and too short for most indicator periods; blank indicator values are expected.'
+        ]),
+        permission: DEMO_PERMISSION
+      };
     }
 
     const security = await findSecurityBySymbol(symbol);
-    if (!security) return { security: null, items: [], reason: 'Security not found in the configured security master.' };
+    if (!security)
+      return { security: null, items: [], reason: 'Security not found in the configured security master.' };
     const permission = historicalPermission(this.historicalPermissionConfirmed);
     if (!this.historicalPermissionConfirmed) {
       return {
@@ -209,13 +277,15 @@ export class MarketService {
         inputThrough: null,
         observationCount: 0,
         items: [],
-        reason: 'Stored historical data is withheld: display permission is not recorded. Confirm written permission and set HISTORICAL_DATA_PERMISSION_CONFIRMED=true.',
+        reason:
+          'Stored historical data is withheld: display permission is not recorded. Confirm written permission and set HISTORICAL_DATA_PERMISSION_CONFIRMED=true.',
         permission,
         provenance: null,
         warnings: []
       };
     }
-    const to = new Date(); const from = new Date(to.getTime() - 4 * 366 * 24 * 60 * 60 * 1000);
+    const to = new Date();
+    const from = new Date(to.getTime() - 4 * 366 * 24 * 60 * 60 * 1000);
     const rows = await historicalObservations(security.id, from, to, 1200);
     const series: TechnicalSeriesRow[] = rows.map((row) => ({
       sessionAt: row.sessionDate,
@@ -225,7 +295,10 @@ export class MarketService {
       volume: row.volume ?? null
     }));
     const latest = rows.at(-1);
-    const warnings = ['Indicators use observations in database order; this endpoint does not adjust prices for corporate actions unless the upstream historical series is marked accordingly.', 'Indicators describe history and are not guaranteed predictions.'];
+    const warnings = [
+      'Indicators use observations in database order; this endpoint does not adjust prices for corporate actions unless the upstream historical series is marked accordingly.',
+      'Indicators describe history and are not guaranteed predictions.'
+    ];
     const provenance: Provenance = {
       kind: 'STORED_OBSERVATION',
       label: 'Calculated from stored historical sessions (not a live feed)',
@@ -234,8 +307,18 @@ export class MarketService {
       source: latest?.source ?? null,
       freshnessNote: 'Indicator inputs end at the latest stored session date shown below; nothing is projected forward.'
     };
-    const result = this.technicalsFromSeries({ id: security.id, symbol: security.symbol, name: security.name }, series, provenance, warnings);
-    return { ...result, inputThrough: latest?.sessionDate.toISOString() ?? null, observationCount: rows.length, permission };
+    const result = this.technicalsFromSeries(
+      { id: security.id, symbol: security.symbol, name: security.name },
+      series,
+      provenance,
+      warnings
+    );
+    return {
+      ...result,
+      inputThrough: latest?.sessionDate.toISOString() ?? null,
+      observationCount: rows.length,
+      permission
+    };
   }
 
   private technicalsFromSeries(
@@ -244,25 +327,64 @@ export class MarketService {
     provenance: Provenance,
     warnings: string[]
   ) {
-    const candles = series.map((row) => ({ close: row.close, high: row.high ?? undefined, low: row.low ?? undefined, volume: row.volume ?? undefined, timestamp: row.sessionAt.toISOString() }));
+    const candles = series.map((row) => ({
+      close: row.close,
+      high: row.high ?? undefined,
+      low: row.low ?? undefined,
+      volume: row.volume ?? undefined,
+      timestamp: row.sessionAt.toISOString()
+    }));
     const closes = candles.map((candle) => candle.close);
     const usable = candles.filter((candle) => Number.isFinite(candle.close) && candle.close > 0);
     if (!usable.length) {
-      return { security: { id: security.id, symbol: security.symbol, name: security.name }, inputThrough: series.at(-1)?.sessionAt.toISOString() ?? null, observationCount: series.length, items: [], reason: 'No historical observations are available.', provenance, warnings };
+      return {
+        security: { id: security.id, symbol: security.symbol, name: security.name },
+        inputThrough: series.at(-1)?.sessionAt.toISOString() ?? null,
+        observationCount: series.length,
+        items: [],
+        reason: 'No historical observations are available.',
+        provenance,
+        warnings
+      };
     }
     return {
       security: { id: security.id, symbol: security.symbol, name: security.name },
       inputThrough: series.at(-1)?.sessionAt.toISOString() ?? null,
       observationCount: series.length,
       items: [
-        { name: 'SMA', period: 20, ...sma(closes, 20), definition: 'Arithmetic mean of the last 20 available observations.' },
-        { name: 'SMA', period: 50, ...sma(closes, 50), definition: 'Arithmetic mean of the last 50 available observations.' },
-        { name: 'SMA', period: 200, ...sma(closes, 200), definition: 'Arithmetic mean of the last 200 available observations.' },
+        {
+          name: 'SMA',
+          period: 20,
+          ...sma(closes, 20),
+          definition: 'Arithmetic mean of the last 20 available observations.'
+        },
+        {
+          name: 'SMA',
+          period: 50,
+          ...sma(closes, 50),
+          definition: 'Arithmetic mean of the last 50 available observations.'
+        },
+        {
+          name: 'SMA',
+          period: 200,
+          ...sma(closes, 200),
+          definition: 'Arithmetic mean of the last 200 available observations.'
+        },
         { name: 'EMA', period: 20, ...ema(closes, 20), definition: 'Exponentially weighted mean, SMA-seeded.' },
         { name: 'RSI', period: 14, ...rsi(closes, 14), definition: 'Wilder-smoothed relative strength index.' },
         { name: 'MACD', period: 12, ...macd(closes), definition: 'EMA(12) minus EMA(26), signal EMA(9).' },
-        { name: 'ATR', period: 14, ...atr(candles, 14), definition: 'Wilder-smoothed true range; requires high/low/close.' },
-        { name: 'HISTORICAL_VOLATILITY', period: closes.length - 1, ...historicalVolatility(closes), definition: 'Annualized sample standard deviation of log returns, 252 sessions/year.' }
+        {
+          name: 'ATR',
+          period: 14,
+          ...atr(candles, 14),
+          definition: 'Wilder-smoothed true range; requires high/low/close.'
+        },
+        {
+          name: 'HISTORICAL_VOLATILITY',
+          period: closes.length - 1,
+          ...historicalVolatility(closes),
+          definition: 'Annualized sample standard deviation of log returns, 252 sessions/year.'
+        }
       ],
       reason: null,
       provenance,
@@ -274,7 +396,13 @@ export class MarketService {
     if (this.demoActive) {
       const rows = await this.providers.primary.getHistory({ symbol, from, to, interval: '1d' });
       if (!rows.length) {
-        return { security: null, items: [], reason: 'This symbol is not one of the demo fixtures, or the requested window has no synthetic sessions.', provenance: demoProvenance(), warnings: [DEMO_NOTICE] };
+        return {
+          security: null,
+          items: [],
+          reason: 'This symbol is not one of the demo fixtures, or the requested window has no synthetic sessions.',
+          provenance: demoProvenance(),
+          warnings: [DEMO_NOTICE]
+        };
       }
       return {
         security: demoSecurity(symbol),
@@ -298,13 +426,15 @@ export class MarketService {
     }
 
     const security = await findSecurityBySymbol(symbol);
-    if (!security) return { security: null, items: [], reason: 'Security not found in the configured security master.' };
+    if (!security)
+      return { security: null, items: [], reason: 'Security not found in the configured security master.' };
     const permission = historicalPermission(this.historicalPermissionConfirmed);
     if (!this.historicalPermissionConfirmed) {
       return {
         security: { id: security.id, symbol: security.symbol, name: security.name },
         items: [],
-        reason: 'Stored historical data is withheld: display permission is not recorded. Confirm written permission and set HISTORICAL_DATA_PERMISSION_CONFIRMED=true.',
+        reason:
+          'Stored historical data is withheld: display permission is not recorded. Confirm written permission and set HISTORICAL_DATA_PERMISSION_CONFIRMED=true.',
         permission,
         provenance: null,
         warnings: []
@@ -314,7 +444,14 @@ export class MarketService {
     const latest = rows.at(-1);
     return {
       security: { id: security.id, symbol: security.symbol, name: security.name },
-      items: rows.map((row) => ({ ...row, open: row.open ? Number(row.open) : null, high: row.high ? Number(row.high) : null, low: row.low ? Number(row.low) : null, close: Number(row.close), volume: row.volume })),
+      items: rows.map((row) => ({
+        ...row,
+        open: row.open ? Number(row.open) : null,
+        high: row.high ? Number(row.high) : null,
+        low: row.low ? Number(row.low) : null,
+        close: Number(row.close),
+        volume: row.volume
+      })),
       reason: rows.length ? null : 'No historical observations are available.',
       permission,
       provenance: rows.length
@@ -327,7 +464,9 @@ export class MarketService {
             freshnessNote: `Series ends at ${latest?.sessionDate.toISOString() ?? 'an unknown date'}; adjusted for corporate actions: ${latest?.adjustedForCorporateActions ? 'yes' : 'no (as stored)'}.`
           }
         : null,
-      warnings: ['Historical records are served independently of the live quote adapter and may be unavailable or unlicensed for redistribution.']
+      warnings: [
+        'Historical records are served independently of the live quote adapter and may be unavailable or unlicensed for redistribution.'
+      ]
     };
   }
 }
