@@ -7,10 +7,22 @@
  *
  * When all three hold, `DATABASE_URL` is pointed at the test database so the
  * application modules under test use it.
+ *
+ * `REQUIRE_INTEGRATION_TESTS=true` turns a missing `TEST_DATABASE_URL` into a hard failure.
+ * CI sets it so that a job which never reaches a database cannot report success on a suite
+ * that silently skipped: exiting 0 with every test skipped is indistinguishable from passing
+ * unless this guard is enabled.
  */
 const testUrl = process.env.TEST_DATABASE_URL;
+const requireIntegration = process.env.REQUIRE_INTEGRATION_TESTS === 'true';
 
 if (!testUrl) {
+  if (requireIntegration) {
+    throw new Error(
+      '[integration] REQUIRE_INTEGRATION_TESTS=true but TEST_DATABASE_URL is not set. ' +
+        'Refusing to report an all-skipped suite as success.'
+    );
+  }
   console.warn('[integration] TEST_DATABASE_URL is not set: PostgreSQL integration tests will be skipped, not passed.');
 } else {
   let databaseName: string;

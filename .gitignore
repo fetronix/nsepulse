@@ -13,3 +13,4 @@ logs/
 *.tar.gz
 .DS_Store
 *.local
+test-results/

@@ -16,6 +16,8 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     fileParallelism: false,
-    reporters: ['default']
+    // Emit a machine-readable report so scripts/assert-integration-ran.mjs can prove the
+    // suite executed rather than skipped (vitest exits 0 for an all-skipped run).
+    reporters: ['default', ['json', { outputFile: 'test-results/integration.json' }]]
   }
 });
