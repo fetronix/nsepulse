@@ -9,7 +9,9 @@ RUN npm ci --no-audit --no-fund
 COPY tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts ./
 COPY index.html ./
 COPY src ./src
-RUN npm run build:api && npm run build
+# Order matters: `vite build` empties dist/, so the server compilation must run afterwards.
+# `build:all` encodes that order (typecheck -> vite build -> tsc) and is regression-tested.
+RUN npm run build:all
 
 # ---- production dependencies only ----
 FROM node:22-alpine AS production-deps
@@ -31,7 +33,6 @@ COPY package.json package-lock.json ./
 COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY drizzle ./drizzle
-COPY docs/openapi.yaml ./docs/openapi.yaml
 COPY --chown=node:node docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh \
     && mkdir -p /app/logs \

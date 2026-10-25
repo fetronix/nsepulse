@@ -8,6 +8,32 @@ export const openApi = {
   },
   servers: [{ url: '/api/v1' }],
   paths: {
+    '/docs': {
+      get: {
+        summary: 'This OpenAPI document',
+        description: 'Machine-readable description of every route this service registers.',
+        responses: { '200': { description: 'OpenAPI 3.1 document' } }
+      }
+    },
+    '/health/live': {
+      get: {
+        summary: 'Liveness probe',
+        description:
+          'Process-level check with no dependency calls. Suitable for container and orchestrator liveness probes.',
+        responses: { '200': { description: 'status=ok with version, uptime, timestamp and timezone' } }
+      }
+    },
+    '/health/ready': {
+      get: {
+        summary: 'Readiness probe',
+        description:
+          'Aggregates process, database, provider and data-freshness checks. An unconfigured database is reported as ok; a configured but unreachable database is not ok.',
+        responses: {
+          '200': { description: 'status=ready with per-check detail' },
+          '503': { description: 'status=not_ready; a blocking check failed' }
+        }
+      }
+    },
     '/health': {
       get: {
         summary: 'Application, database and provider health',

@@ -72,11 +72,20 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build web bundle and server output
+        run: npm run build:all
+      - name: Verify build artefacts exist
+        # `vite build` empties dist/, so a wrong ordering silently drops the server bundle.
+        # Assert every artefact the container entrypoint and CMD rely on.
         run: |
-          npm run build
-          npm run build:api
-      - name: Verify server entrypoint exists
-        run: test -f dist/server/index.js
+          set -eu
+          for artefact in dist/index.html dist/server/index.js dist/server/db/migrate.js; do
+            if [ -f "$artefact" ]; then
+              echo "OK   $artefact ($(wc -c < "$artefact") bytes)"
+            else
+              echo "::error::Missing build artefact: $artefact"
+              exit 1
+            fi
+          done
 
   integration:
     name: PostgreSQL integration tests
