@@ -159,6 +159,14 @@ which is compiled into the browser bundle.
 
 ## 9. Running locally
 
+A fresh clone needs a migrated database before the dashboard has anything to show:
+
+```bash
+cp .env.example .env        # then set DATABASE_URL
+npm run db:migrate          # required once per database
+npm run db:check            # expect exit 0
+```
+
 ```bash
 npm run dev          # API (tsx watch) + Vite dev server together
 npm run dev:api      # API only on :4000

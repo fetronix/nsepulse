@@ -35,9 +35,26 @@ const nav = [
   { id: 'sources', label: 'Data sources', icon: '◉' }
 ];
 
+/** An HTTP failure the server explained itself, so the operator can act on it. */
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly serverDetail: string | null
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function api<T>(path: string): Promise<T> {
   const response = await fetch(`/api/v1${path}`, { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`API returned ${response.status}`);
+  if (!response.ok) {
+    // The API explains storage failures in `error`/`hint` (for example an unmigrated
+    // database). Surfacing that beats a generic "API returned 503".
+    const body = (await response.json().catch(() => null)) as { error?: string; hint?: string } | null;
+    const detail = body?.error ? `${body.error}${body.hint ? ` — ${body.hint}` : ''}` : null;
+    throw new ApiError(`API returned ${response.status}`, detail);
+  }
   return response.json() as Promise<T>;
 }
 function formatTime(value: string | null | undefined) {
@@ -84,8 +101,12 @@ export function App() {
       const [o, h] = await Promise.all([api<Overview>('/market/overview'), api<Health>('/health')]);
       setOverview(o);
       setHealth(h);
-    } catch {
-      setError('The API could not be reached. Start the application server or check the deployment health endpoint.');
+    } catch (cause) {
+      const explained = cause instanceof ApiError ? cause.serverDetail : null;
+      setError(
+        explained ??
+          'The API could not be reached. Start the application server or check the deployment health endpoint.'
+      );
     }
   }, []);
   useEffect(() => {

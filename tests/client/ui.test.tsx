@@ -64,6 +64,35 @@ describe('market overview shell', () => {
     expect(await screen.findByText(/The API could not be reached/)).toBeTruthy();
   });
 
+  it('shows the server explanation when the API reports an unmigrated database', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL) => {
+        const path = String(input).replace('/api/v1', '');
+        if (path === '/market/overview')
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({
+              error: 'The database schema is not initialised',
+              hint: 'Run `npm run db:migrate` against this DATABASE_URL.'
+            })
+          } as unknown as Response;
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({
+            error: 'The database schema is not initialised',
+            hint: 'Run `npm run db:migrate` against this DATABASE_URL.'
+          })
+        } as unknown as Response;
+      })
+    );
+    render(<App />);
+    expect(await screen.findByText(/The database schema is not initialised/)).toBeTruthy();
+    expect(screen.getByText(/npm run db:migrate/)).toBeTruthy();
+  });
+
   it('shows demo labelling when the API reports demo mode', async () => {
     routes['/market/overview'] = () => overview;
     routes['/health'] = () => ({ ...health, demoMode: true });
