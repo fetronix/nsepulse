@@ -312,6 +312,63 @@ Adding `MIGRATIONS_FOLDER` to the migration runner created a variable that the c
 `src/server/config.ts`, and fails if any is missing from `.env.example`. Shown to fail by removing
 the `MIGRATIONS_FOLDER` line again.
 
+## 19. Mansa market-data adapter and Telegram integration
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | A real, documented market-data adapter usable by the API, the scheduler and the existing Telegram bot, without inventing endpoints or fields                                                                                                                                                                                                                          |
+| Status        | **Implemented and covered by mocked tests; live behaviour unverified**                                                                                                                                                                                                                                                                                                |
+| Verification  | `npx vitest run tests/providers/mansa-client.test.ts tests/providers/mansa-normalize.test.ts tests/providers/mansa-provider.test.ts tests/providers/mansa-selection.test.ts tests/server/mansa-market-service.test.ts tests/telegram/mansa-bot.test.ts`                                                                                                               |
+| Actual result | `87 tests` across those six files pass (17 client, 24 normalisation, 21 provider, 6 selection, 6 service, 13 Telegram). Whole suite: `313 passed, 2 skipped` across `36` files at 86.47/78.98/88.16/87.42 coverage against the unchanged 70/60/70/70 floors                                                                                                           |
+| Evidence      | `src/server/providers/mansa/{client,errors,normalize,provider,cache}.ts`, `src/server/services/market.ts`, `src/server/telegram/bot.ts`, `scripts/mansa-probe.ts`, `.env.example`, `README.md` §8/§12, `docs/PROVIDER_SETUP.md`, `docs/SECURITY.md`                                                                                                                   |
+| Limitation    | **No authenticated request to mansaapi.com was ever made from this environment.** `curl https://mansaapi.com` returns `000` (egress is restricted to GitHub/npm/PyPI), so the documentation was read through the page-fetch tool and the adapter was exercised only against mocked `fetch` responses. Nothing here constitutes proof that live Kenyan NSE prices work |
+
+### What the documentation actually establishes
+
+Read from `https://mansaapi.com/docs`, `/docs/markets`, `/docs/ai-agents`, `/llms.txt` and
+`/openapi.json`:
+
+- Base URL `https://mansaapi.com`; `Authorization: Bearer mansa_live_sk_...`.
+- `401` distinguishes `MISSING_API_KEY` from `INVALID_API_KEY`; `429` is the daily limit; a free
+  tier of **100 requests/day** covering quotes, exchanges, calendars and indices.
+- Exchange codes are documented as `NGX, GSE, NSE, JSE, BRVM, DSE, LUSE`, and a security-master
+  example returns `{"exchange": "NSE", "ticker": "ABSA", "legal_name": "ABSA Bank Kenya"}`,
+  confirming `NSE` is Kenya.
+- Markets endpoints "currently target 30-minute freshness during market hours".
+- Per-stock history is "Pro plan and above".
+
+### What the documentation does not establish
+
+The field names **inside** a `/stocks` record are not published anywhere: the OpenAPI schema for
+`data` is a free-form object and worked examples exist only for ETFs, indices, history, insider
+trades and disclosures. The adapter therefore (a) tolerates a documented-style alias set,
+(b) records which alias matched on every observation, (c) refuses records lacking a ticker or a
+positive price, and (d) ships `npm run mansa:probe` to print the real key names from a live
+response. That gap is the single most important thing to close before trusting this in
+production, and it is stated in `README.md`, `docs/PROVIDER_SETUP.md` and `docs/PROJECT_STATUS.md`
+rather than papered over.
+
+### Behaviour that is enforced by tests rather than asserted in prose
+
+- `REAL_TIME` is never produced; a payload inside the 30-minute target is `DELAYED`, older is
+  `UNKNOWN`, over 24 hours is stale, and a future timestamp is rejected.
+- A 429 `Retry-After` of 120 s is surfaced instead of waited out; a 5xx is retried at most twice.
+- The local daily budget is checked before every request and throws `QUOTA` without sending one.
+- Repeated quotes and identical concurrent lookups cost one upstream request; a warmed snapshot
+  answers per-symbol quotes with no request at all.
+- The API key never appears in an error message, log field, provider status or stack trace.
+- A non-HTTPS base URL is refused before any token is sent.
+- A missing key leaves the HTTP API fully working and the quote route honest.
+- A Telegram handler failure (provider or transport) produces an explicit fallback reply instead
+  of an unhandled rejection, and polling can only be claimed once per process, with a PostgreSQL
+  advisory lock preventing a second replica from polling at all.
+
+### Deliberately not implemented
+
+Alert generation and de-duplication across restarts: no alert evaluation or delivery pipeline
+exists in this repository, so there is nothing to de-duplicate. Adding an alert engine was out of
+scope for this change and is not claimed.
+
 ## Fresh-clone verification
 
 Run on a clean clone of the branch head (`d0b2a64`) rather than on the working tree, to prove the

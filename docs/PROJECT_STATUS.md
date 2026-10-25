@@ -46,8 +46,15 @@ market-data provider. Checks below were run from a fresh clone of the branch.
   historical-data API endpoint.
 - Educational dividend calculator, timestamp-requiring market-cap helper, transparent weighted
   scorecard, alert condition evaluator, and paper-position calculation utility.
-- Optional grammY bot commands: `/start`, `/help`, `/market`, `/quote`, `/status`. It cannot
-  access user-specific watchlists because user account authorization is not implemented.
+- Optional grammY bot commands: `/start`, `/help`, `/market`, `/quote`, `/gainers`, `/losers`,
+  `/status`. It cannot access user-specific watchlists because user account authorization and an
+  alert delivery pipeline are not implemented.
+- Mansa market-data adapter (`src/server/providers/mansa/`): HTTPS + Bearer auth, runtime
+  exchange-code discovery, snapshot/quote/movers/history reads, classified failures, bounded
+  retries with `Retry-After`, a locally enforced daily budget, a TTL cache and a 30-minute
+  snapshot refresh. **Not live-verified**: no authenticated response has been obtained from this
+  environment, and the `/stocks` record field names are not published by Mansa (see
+  `docs/PROVIDER_SETUP.md`).
 - Optional, disabled-by-default health heartbeat using advisory lock; it is not a market-data
   scheduler.
 - Structured observability: pino JSON logs with redaction, correlation ids echoed as

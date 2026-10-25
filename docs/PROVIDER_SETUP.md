@@ -10,14 +10,80 @@ At this implementation version there is **no verified programmatic NSE API contr
 
 `MARKET_DATA_PROVIDER` is evaluated in `src/server/providers/factory.ts`:
 
-| Value            | Adapter                 | Behaviour                                                                                                |
-| ---------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `none` (default) | `UnconfiguredProvider`  | No request, `null` quote, empty history, `UNCONFIGURED`/`UNKNOWN`.                                       |
-| `demo`           | `DemoFixtureProvider`   | Only when `ALLOW_DEMO_MARKET_DATA=true` and `NODE_ENV` is not `production`. Synthetic labelled fixtures. |
-| `nse-vendor`     | `VendorPendingProvider` | Placeholder. Reports missing pieces; **never** makes a request, even with credentials present.           |
-| anything else    | `UnconfiguredProvider`  | Unknown value is ignored with an explicit warning; no provider is enabled.                               |
+| Value            | Adapter                 | Behaviour                                                                                                 |
+| ---------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `none` (default) | `UnconfiguredProvider`  | No request, `null` quote, empty history, `UNCONFIGURED`/`UNKNOWN`.                                        |
+| `demo`           | `DemoFixtureProvider`   | Only when `ALLOW_DEMO_MARKET_DATA=true` and `NODE_ENV` is not `production`. Synthetic labelled fixtures.  |
+| `mansa`          | `MansaProvider`         | Real adapter. Requires `MANSA_API_KEY`; without it the disabled adapter is used and the reason is logged. |
+| `nse-vendor`     | `VendorPendingProvider` | Placeholder. Reports missing pieces; **never** makes a request, even with credentials present.            |
+| anything else    | `UnconfiguredProvider`  | Unknown value is ignored with an explicit warning; no provider is enabled.                                |
 
-`MARKET_DATA_PROVIDER=none` remains the enforced default. Credential presence never changes state to `READY`; only a written contract plus an implemented, contract-tested adapter may do that, and the current code contains no such adapter.
+`MARKET_DATA_PROVIDER=none` remains the enforced default. Credential presence never changes state
+to `READY`: the Mansa adapter only reports `READY` after an authenticated response has actually
+succeeded in the running process, and reports `DEGRADED` (configured, unverified) or `ERROR`
+before that.
+
+## Mansa adapter
+
+Implemented in `src/server/providers/mansa/` against https://mansaapi.com/docs. Nothing here is
+guessed: every path below is taken verbatim from Mansa's published documentation or its
+`openapi.json`.
+
+| Documented fact                                                              | Where it is used                              |
+| ---------------------------------------------------------------------------- | --------------------------------------------- |
+| Base URL `https://mansaapi.com`, `Authorization: Bearer mansa_live_sk_...`   | `client.ts`                                   |
+| `GET /api/v1/markets/exchanges`                                              | Kenya exchange-code discovery (`provider.ts`) |
+| `GET /api/v1/markets/exchanges/{exchange_code}/stocks`                       | Snapshot warm + self-test                     |
+| `GET /api/v1/markets/exchanges/{exchange_code}/stocks/{ticker}`              | Single quote                                  |
+| `GET /api/v1/markets/exchanges/{exchange_code}/movers`                       | `/gainers`, `/losers`                         |
+| `GET /api/v1/markets/exchanges/{exchange_code}/stocks/{ticker}/history`      | History (Pro plan and above)                  |
+| `GET /health` (public)                                                       | Connection self-test, no key and no quota     |
+| 401 `MISSING_API_KEY` / `INVALID_API_KEY`, 429 daily limit, 403 plan tier    | Classified errors in `errors.ts`              |
+| Free tier 100 requests/day; quotes, exchanges, calendars, indices included   | Local budget + cache                          |
+| "Markets endpoints currently target 30-minute freshness during market hours" | Data-mode derivation                          |
+| Kenya exchange code documented as `NSE`                                      | Fallback only, after discovery                |
+
+### Data-mode rules
+
+`REAL_TIME` is never assigned. A payload within the documented 30-minute target is `DELAYED`;
+older than that is `UNKNOWN` (the documentation gives no per-record semantics for it); older than
+24 hours is stale. A timestamp more than five minutes in the future is rejected outright rather
+than displayed.
+
+### What is _not_ documented, and how that is handled
+
+The field names inside a stock record are not published. Mansa's worked examples cover ETFs,
+indices, history, insider trades and disclosures, but not `/stocks`, and the OpenAPI schema for
+`data` is a free-form object. The adapter therefore:
+
+1. tolerates a small alias set built from field names Mansa uses for the same instrument data
+   elsewhere in its Markets documentation (`symbol`/`ticker`, `close`/`price`, `change_percentage`,
+   `previous_close`, `updated_at`, …);
+2. records on every observation which alias actually matched, as `notes`;
+3. refuses any record without a ticker and a positive numeric price, and refuses a ticker that
+   does not match the request, rather than relabelling it;
+4. prints the real key names with `npm run mansa:probe` so the alias table can be replaced with
+   verified fact.
+
+### Credentials
+
+`MANSA_API_KEY` is read once into the adapter and never copied into `ProviderSettings`, logs, API
+responses, the client bundle or error text. The configuration page shows `CONFIGURED` / `MISSING`
+for `MANSA_API_KEY` and the base URL only. The client refuses a non-HTTPS base URL so a bearer
+token cannot be sent in the clear, and never puts the key in a query string.
+
+### Commands
+
+```bash
+# verify configuration without a key (must fail safely, no request):
+MARKET_DATA_PROVIDER=mansa npm run dev:api
+
+# confirm real field names and normalisation against your own key:
+MANSA_API_KEY=mansa_live_sk_... npm run mansa:probe
+
+# optional manual integration test (skipped when the key is absent):
+MANSA_API_KEY=mansa_live_sk_... npx vitest run tests/manual/mansa-live.test.ts
+```
 
 ## Adapter interface
 
@@ -32,6 +98,10 @@ interface MarketDataProvider {
   getLatestQuote(request: QuoteRequest): Promise<MarketObservation | null>;
   getHistory(request: HistoricalRequest): Promise<MarketObservation[]>;
   selfTest(now?: Date): Promise<ProviderSelfTest>; // local checks; reports whether a network call was made
+  // Optional, so the disabled/demo placeholders stay minimal:
+  readonly live?: boolean; // true only for an adapter that performs outbound calls
+  getMovers?(request: MoversRequest): Promise<MoversSnapshot | null>;
+  describeLastFailure?(): string | null; // classified, secret-free
 }
 ```
 
@@ -112,6 +182,10 @@ The permission flags are operator attestations, not licences. Set them only when
 ## Current behaviour summary
 
 - Default adapter: `UNCONFIGURED`, `UNKNOWN` data mode, `null` quote, empty historical series.
+- With `MARKET_DATA_PROVIDER=mansa` and a key, quotes are `DELAYED` at best, carry the provider
+  observation time, and are reported as unavailable (with a classified reason) on any timeout,
+  auth, plan, rate-limit or malformed-payload failure. A stored observation may still be shown,
+  but it is labelled as stored and the warning says it is not a current provider quote.
 - There is no hidden fixture fallback; demo data is opt-in, labelled and refused in production.
 - Even once configured, a provider integration must independently validate market timestamps, data age, prices/units/currency, duplicate/correction behavior, outliers, coverage and service health before live display.
 - The API's provider state indicates application wiring, not contractual permission or market availability.

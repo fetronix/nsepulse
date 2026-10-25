@@ -34,16 +34,16 @@ What it is not: a broker, a price feed, a redistribution channel for NSE data, o
 
 ## 2. Current status
 
-| Area                                                                | Status                                                                           |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Dashboard, API, provider commissioning view                         | Working, tested against fixtures                                                 |
-| Database schema and versioned migrations                            | Working; migration execution verified only where PostgreSQL is reachable         |
-| Indicators, calculations, data-quality rules                        | Working, unit tested                                                             |
-| Structured logging, correlation ids, health probes                  | Working, tested                                                                  |
-| Container build and Compose environment                             | Authored; image build requires Docker (unavailable in the authoring environment) |
-| Real provider ingestion                                             | **Not implemented** — `MARKET_DATA_PROVIDER=none`                                |
-| Authentication, user-owned watchlists/portfolios/alerts             | **Not implemented** — deliberately no user-scoped write endpoints                |
-| Full Telegram command set, notification delivery, news/fundamentals | **Not implemented**                                                              |
+| Area                                                                | Status                                                                                                                                                                 |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard, API, provider commissioning view                         | Working, tested against fixtures                                                                                                                                       |
+| Database schema and versioned migrations                            | Working; migration execution verified only where PostgreSQL is reachable                                                                                               |
+| Indicators, calculations, data-quality rules                        | Working, unit tested                                                                                                                                                   |
+| Structured logging, correlation ids, health probes                  | Working, tested                                                                                                                                                        |
+| Container build and Compose environment                             | Authored; image build requires Docker (unavailable in the authoring environment)                                                                                       |
+| Real provider ingestion                                             | Mansa adapter implemented (`MARKET_DATA_PROVIDER=mansa`), **not live-verified** — no authenticated response was obtainable while building it; `none` stays the default |
+| Authentication, user-owned watchlists/portfolios/alerts             | **Not implemented** — deliberately no user-scoped write endpoints                                                                                                      |
+| Full Telegram command set, notification delivery, news/fundamentals | **Not implemented**                                                                                                                                                    |
 
 Details, including what must not be claimed in an assessment of this repository, are in
 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md).
@@ -65,7 +65,7 @@ Details, including what must not be claimed in an assessment of this repository,
   derived interpretation, declared versus estimated dividend, missing versus genuine zero.
 - **Observability**: Pino structured logs with correlation ids, `/health/live` and
   `/health/ready` probes, provider/job outcome logging, graceful shutdown.
-- **Telegram bot** (opt-in): `/start`, `/help`, `/market`, `/quote`, `/status`; unavailable data
+- **Telegram bot** (opt-in): `/start`, `/help`, `/market`, `/quote`, `/gainers`, `/losers`, `/status`; unavailable data
   is reported as unavailable.
 
 ## 4. Architecture
@@ -131,24 +131,28 @@ Every variable the application reads is documented in [`.env.example`](.env.exam
 validates the environment at startup with Zod and exits non-zero with field-level errors rather
 than running with a half-valid configuration.
 
-| Variable                                                    | Default                 | Notes                                                                  |
-| ----------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `NODE_ENV`                                                  | `development`           | `development` \| `test` \| `production`                                |
-| `PORT`, `HOST`                                              | `4000`, `0.0.0.0`       | API bind address                                                       |
-| `APP_ORIGIN`                                                | `http://localhost:5173` | Exact CORS origin; no wildcard                                         |
-| `DATABASE_URL`, `DATABASE_SSL`                              | empty, `false`          | Without a URL the API runs read-only/degraded                          |
-| `MARKET_DATA_PROVIDER`                                      | `none`                  | `none` \| `demo` (dev) \| `nse-vendor` (placeholder, makes no request) |
-| `ALLOW_DEMO_MARKET_DATA`                                    | `false`                 | Required opt-in for fixtures; refused when `NODE_ENV=production`       |
-| `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`             | empty                   | Placeholders. No default endpoint is invented                          |
-| `HISTORICAL_DATA_PERMISSION_CONFIRMED`                      | `false`                 | Operator attestation; rows are withheld otherwise                      |
-| `ANNOUNCEMENTS_PERMISSION_CONFIRMED`                        | `false`                 | Separate attestation for issuer announcements                          |
-| `TELEGRAM_BOT_TOKEN`                                        | empty                   | Secret, server-side only; polling disabled when unset                  |
-| `SESSION_SECRET`                                            | placeholder             | Reserved for a future auth implementation; no sessions exist yet       |
-| `LOG_LEVEL`                                                 | `info`                  | `fatal`\|`error`\|`warn`\|`info`\|`debug`\|`trace`\|`silent`           |
-| `ENABLE_SCHEDULER`                                          | `false`                 | Opt-in provider-health heartbeat, not an ingestion switch              |
-| `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT` | none                    | Supplied per import command; the importer refuses to run without both  |
-| `RUN_MIGRATIONS`                                            | unset                   | Container entrypoint only; applies migrations on start                 |
-| `MIGRATIONS_FOLDER`                                         | `./drizzle/generated`   | Directory `npm run db:migrate` reads; override when mounting elsewhere |
+| Variable                                                    | Default                       | Notes                                                                  |
+| ----------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| `NODE_ENV`                                                  | `development`                 | `development` \| `test` \| `production`                                |
+| `PORT`, `HOST`                                              | `4000`, `0.0.0.0`             | API bind address                                                       |
+| `APP_ORIGIN`                                                | `http://localhost:5173`       | Exact CORS origin; no wildcard                                         |
+| `DATABASE_URL`, `DATABASE_SSL`                              | empty, `false`                | Without a URL the API runs read-only/degraded                          |
+| `MARKET_DATA_PROVIDER`                                      | `none`                        | `none` \| `mansa` \| `demo` (dev) \| `nse-vendor` (placeholder)        |
+| `ALLOW_DEMO_MARKET_DATA`                                    | `false`                       | Required opt-in for fixtures; refused when `NODE_ENV=production`       |
+| `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`             | empty                         | Placeholders. No default endpoint is invented                          |
+| `MANSA_API_BASE_URL`, `MANSA_API_KEY`                       | `https://mansaapi.com`, empty | Mansa adapter. HTTPS only; key is server-side and never returned       |
+| `MANSA_REQUEST_TIMEOUT_MS`                                  | `10000`                       | Per-request timeout                                                    |
+| `MANSA_DAILY_REQUEST_BUDGET`                                | `100`                         | Local ceiling matching the documented free tier                        |
+| `MANSA_CACHE_TTL_SECONDS`                                   | `300`                         | Snapshot cache lifetime; bounds upstream calls                         |
+| `HISTORICAL_DATA_PERMISSION_CONFIRMED`                      | `false`                       | Operator attestation; rows are withheld otherwise                      |
+| `ANNOUNCEMENTS_PERMISSION_CONFIRMED`                        | `false`                       | Separate attestation for issuer announcements                          |
+| `TELEGRAM_BOT_TOKEN`                                        | empty                         | Secret, server-side only; polling disabled when unset                  |
+| `SESSION_SECRET`                                            | placeholder                   | Reserved for a future auth implementation; no sessions exist yet       |
+| `LOG_LEVEL`                                                 | `info`                        | `fatal`\|`error`\|`warn`\|`info`\|`debug`\|`trace`\|`silent`           |
+| `ENABLE_SCHEDULER`                                          | `false`                       | Opt-in provider-health heartbeat, not an ingestion switch              |
+| `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT` | none                          | Supplied per import command; the importer refuses to run without both  |
+| `RUN_MIGRATIONS`                                            | unset                         | Container entrypoint only; applies migrations on start                 |
+| `MIGRATIONS_FOLDER`                                         | `./drizzle/generated`         | Directory `npm run db:migrate` reads; override when mounting elsewhere |
 
 Secrets belong in the server environment or a secret manager. Never in a `VITE_*` variable,
 which is compiled into the browser bundle.
@@ -226,6 +230,55 @@ Each value is labelled `demo`, `dataMode: UNKNOWN` and source
 `DEMO FIXTURE — SYNTHETIC VALUES, NOT AN NSE QUOTE`; the UI shows a permanent banner. Demo mode
 is refused when `NODE_ENV=production` and can never be reached by credential presence alone.
 See [`docs/PROVIDER_SETUP.md`](docs/PROVIDER_SETUP.md) for the access checklist.
+
+### Mansa market data
+
+The only implemented live adapter is Mansa (https://mansaapi.com/docs). It is off unless you
+select it **and** supply a key:
+
+```bash
+MARKET_DATA_PROVIDER=mansa
+MANSA_API_BASE_URL=https://mansaapi.com
+MANSA_API_KEY=mansa_live_sk_your_key_here   # .env only — never commit it
+```
+
+Endpoints used, all taken verbatim from Mansa's published documentation:
+
+| Endpoint                                                       | Purpose                                  |
+| -------------------------------------------------------------- | ---------------------------------------- |
+| `GET /api/v1/markets/exchanges`                                | Discover the Kenya exchange code         |
+| `GET /api/v1/markets/exchanges/{code}/stocks`                  | Exchange list; warms the snapshot cache  |
+| `GET /api/v1/markets/exchanges/{code}/stocks/{ticker}`         | Single stock quote                       |
+| `GET /api/v1/markets/exchanges/{code}/movers`                  | Gainers/losers for `/gainers`, `/losers` |
+| `GET /api/v1/markets/exchanges/{code}/stocks/{ticker}/history` | Daily history (Pro plan and above)       |
+| `GET /health`                                                  | Public platform probe (no key, no quota) |
+
+Behaviour worth knowing before you enable it:
+
+- **It is never called real-time.** Mansa documents a 30-minute freshness target during market
+  hours, so a fresh payload is labelled `DELAYED`; anything older than the target becomes
+  `UNKNOWN`, and anything older than 24 hours is marked stale.
+- **Quota is enforced locally.** `MANSA_DAILY_REQUEST_BUDGET` (default 100, the documented free
+  tier) is checked before every request. Responses are cached for `MANSA_CACHE_TTL_SECONDS`, the
+  snapshot is refreshed every 30 minutes by the scheduler, and N Telegram users share one cache.
+- **Failures fail closed.** Timeouts, 401/403/429, 5xx and malformed payloads return _no_ quote
+  and a classified reason. Nothing is interpolated.
+- **The field names inside a stock record are not published.** Mansa's worked examples cover
+  ETFs, indices, history and insider trades, but not `/stocks`, and the OpenAPI schema for
+  `data` is a free-form object. The adapter therefore tolerates a documented-style alias set and
+  records which alias actually matched on every observation. Confirm yours against your own key:
+
+```bash
+MANSA_API_KEY=mansa_live_sk_your_key_here npm run mansa:probe
+```
+
+The probe prints the real key names and the normalised result, and never prints the key.
+
+- **A Mansa key is not an NSE redistribution licence.** Confirm Mansa's terms before publishing
+  prices to third parties.
+
+When no key is present the app runs exactly as before: `UNCONFIGURED`, no outbound request, and
+`/quote` says no verified quote is available.
 
 Security master import (reviewed official CSV, not a scrape):
 
@@ -362,7 +415,13 @@ repository `LICENSE` file, so no licence is asserted here.
 
 ## 19. Known limitations and roadmap
 
-- No provider adapter is implemented; commissioning is a state machine, not an integration.
+- The Mansa adapter is implemented and unit-tested against mocked responses, but **no
+  authenticated Mansa response has been observed from this environment** (outbound access to
+  `mansaapi.com` is blocked here), so its live behaviour and the exact `/stocks` field names
+  remain unconfirmed. `npm run mansa:probe` is the verification step; until it is run and passes,
+  do not describe the app as serving live NSE prices.
+- Mansa's free tier does not include per-stock history (Pro plan), and a Mansa key is not an NSE
+  redistribution licence.
 - No authentication or user-owned data; no alerts delivery pipeline.
 - Telegram command set is minimal; no notification queue or retries beyond job retries.
 - No news, fundamentals or corporate-action ingestion; dividends are declared-versus-estimated

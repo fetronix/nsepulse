@@ -8,7 +8,7 @@
 - Zod validation for symbol/date/pagination inputs.
 - Safe generic API error responses; no secret-bearing provider configuration is returned by health APIs. Provider configuration and test endpoints expose credential _presence_ only — no field ever carries a secret value, and tests assert injected values never appear in responses.
 - `POST /api/v1/providers/test` is rate limited (10/minute), performs local checks only and reports whether any outbound request was made; the bundled adapters make none.
-- Database secrets and Telegram token are environment-only; `.env` excluded from git.
+- Database secrets, the Telegram token and `MANSA_API_KEY` are environment-only; `.env` excluded from git. The Mansa key is held only by the adapter's HTTP client, is never placed in a query string, and is never written to `ProviderSettings` (so it cannot be serialised into a response by accident). The client refuses a non-HTTPS base URL, so a bearer token cannot be sent in the clear, and every error message is built from status codes rather than the request, so a rejected key never appears in an error, log line or stack trace.
 - Structured logging (pino) with redaction paths for authorization headers, cookies, tokens, API keys and passwords; request logs carry a correlation id and a path without query string, never headers or bodies.
 - Caller-supplied `x-request-id` values are only echoed when they match a UUID-like pattern; otherwise a new id is generated to prevent log injection.
 - CI runs `npm audit --audit-level=high` and the repository secret scan (`npm run check:secrets`), which also fails if a `.env` file other than `.env.example` is tracked.
