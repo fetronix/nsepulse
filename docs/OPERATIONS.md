@@ -126,7 +126,8 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 
 - API not starting: confirm Node version, `PORT`, `HOST`, `DATABASE_URL` syntax and logs.
 - Dashboard cannot reach API: ensure reverse proxy maps `/api` to port `4000`; `APP_ORIGIN` must match browser origin.
-- `DATABASE_URL` missing: only degraded empty-state behavior is expected; configure Postgres and run migrations.
+- `DATABASE_URL` missing: only degraded empty-state behavior is expected; configure Postgres (either `DATABASE_URL` or the `SQL_HOST`/`SQL_PORT`/`SQL_DB_NAME`/`SQL_ADMIN_USER`/`SQL_ADMIN_PASSWORD` group) and run migrations.
+- `Incomplete database configuration: SQL_DB_NAME, SQL_ADMIN_USER must be set…`: part of the `SQL_*` group is missing while no `DATABASE_URL` is present. The startup message names the missing keys only; it never prints values.
 - DB unreachable: check network/firewall, TLS settings and role grants; do not put credentials in diagnostic logs.
 - **Data routes return 503 or the overview reports `database.state: SCHEMA_MISSING`**: the API is up but the database has no application tables (`SQLSTATE 42P01`). Run `npm run db:check` (exit `1`) and then `npm run db:migrate` with the same `DATABASE_URL`. `GET /api/v1/health/ready` returns `503` with `checks.database.schemaInitialised: false` and a hint until this is fixed.
 - **Reading the logs**: `database_request_failed` includes `databaseError.kind` (`SCHEMA_MISSING`, `AUTH`, `PERMISSION`, `CONNECTION`, `UNKNOWN`), the SQLSTATE `code` and the object named by the driver — this is the information the old handler discarded, because Drizzle's message is only `Failed query: …` and the cause sits on `error.cause`.

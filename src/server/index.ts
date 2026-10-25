@@ -1,5 +1,6 @@
 import { createApp } from './api/app.js';
-import { config } from './config.js';
+import { defaultProviderSelection } from './providers/factory.js';
+import { config, databaseConfig } from './config.js';
 import { closeDatabase, tryAcquireProcessLock } from './db/client.js';
 import { startScheduler } from './jobs/runner.js';
 import { logger } from './logging/logger.js';
@@ -8,6 +9,25 @@ import { startTelegramBot } from './telegram/bot.js';
 import { describeTelegramError, isTelegramTokenShape, redactToken } from './telegram/errors.js';
 
 const app = createApp();
+
+/**
+ * Startup summary of the provider boundary.
+ *
+ * Misconfiguration is otherwise only visible on the configuration page, so an operator who
+ * set MANSA_API_KEY but left MARKET_DATA_PROVIDER=none would see a quietly idle system.
+ * Warnings are fixed sentences and contain no credential values.
+ */
+const selection = defaultProviderSelection();
+logger.info(
+  {
+    module: 'providers',
+    requestedProvider: selection.requestedProvider,
+    provider: selection.provider.id,
+    state: (await selection.provider.status()).state,
+    warnings: selection.warnings
+  },
+  'provider_selection_resolved'
+);
 const stopScheduler = startScheduler();
 const server = app.listen(config.PORT, config.HOST, () => {
   logger.info(
@@ -16,6 +36,8 @@ const server = app.listen(config.PORT, config.HOST, () => {
       host: config.HOST,
       port: config.PORT,
       databaseConfigured: Boolean(config.DATABASE_URL),
+      // Non-secret connection description: which variable supplied it, host and database name.
+      database: databaseConfig,
       schedulerEnabled: config.ENABLE_SCHEDULER === 'true' && Boolean(config.DATABASE_URL)
     },
     'server_started'

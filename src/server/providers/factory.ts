@@ -55,6 +55,10 @@ export function createProviderSelection(
     provider = new UnconfiguredProvider();
     if (settings.allowDemoData)
       warnings.push('ALLOW_DEMO_MARKET_DATA is set but MARKET_DATA_PROVIDER is none, so no adapter is enabled.');
+    if (settings.mansaApiKeyConfigured)
+      warnings.push(
+        'MANSA_API_KEY is configured but MARKET_DATA_PROVIDER is none, so the Mansa adapter is not used. Set MARKET_DATA_PROVIDER=mansa to enable it.'
+      );
   } else if (demoRequested) {
     if (productionBlocked) {
       demoBlockedReason = 'Demo market data cannot be enabled when NODE_ENV=production.';

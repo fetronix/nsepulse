@@ -88,7 +88,7 @@ export async function databaseHealth(): Promise<DatabaseHealth> {
         message: present
           ? `Table "${SENTINEL_TABLE}" is present, so migrations have been applied.`
           : `Table "${SENTINEL_TABLE}" is missing: no migration has been applied to this database.`,
-        hint: present ? null : 'Run `npm run db:migrate` against this DATABASE_URL.'
+        hint: present ? null : 'Run `npm run db:migrate` against this database.'
       }
     };
   } catch (error) {

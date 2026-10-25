@@ -88,14 +88,14 @@ describe('readiness', () => {
     database.message = 'PostgreSQL is reachable, but the application schema has not been created.';
     database.schema.initialised = false;
     database.schema.message = 'Table "securities" is missing: no migration has been applied to this database.';
-    database.schema.hint = 'Run `npm run db:migrate` against this DATABASE_URL.';
+    database.schema.hint = 'Run `npm run db:migrate` against this database.';
     const report = await readinessReport(new ProviderRegistry());
     expect(report.status).toBe('not_ready');
     expect(report.checks.database).toMatchObject({
       ok: false,
       configured: true,
       schemaInitialised: false,
-      hint: 'Run `npm run db:migrate` against this DATABASE_URL.'
+      hint: 'Run `npm run db:migrate` against this database.'
     });
     expect(report.checks.database.detail).toContain('Table "securities" is missing');
   });

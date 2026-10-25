@@ -89,7 +89,7 @@ export function classifyDatabaseError(error: unknown): DatabaseErrorDescription 
       kind: 'SCHEMA_MISSING',
       code,
       message,
-      hint: 'The database is reachable but the application tables do not exist. Run `npm run db:migrate` against this DATABASE_URL, then retry.',
+      hint: 'The database is reachable but the application tables do not exist. Run `npm run db:migrate` against this database (the same DATABASE_URL or SQL_* settings), then retry.',
       object: objectFromMessage(message)
     };
 
@@ -116,7 +116,7 @@ export function classifyDatabaseError(error: unknown): DatabaseErrorDescription 
       kind: 'CONNECTION',
       code,
       message,
-      hint: 'The DATABASE_URL names a database that does not exist on this server. Create it (or fix the database name) and run the migrations.',
+      hint: 'The configured connection names a database that does not exist on this server. Create it (or fix SQL_DB_NAME / DATABASE_URL) and run the migrations.',
       object: objectFromMessage(message)
     };
 

@@ -131,31 +131,56 @@ Every variable the application reads is documented in [`.env.example`](.env.exam
 validates the environment at startup with Zod and exits non-zero with field-level errors rather
 than running with a half-valid configuration.
 
-| Variable                                                    | Default                       | Notes                                                                  |
-| ----------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
-| `NODE_ENV`                                                  | `development`                 | `development` \| `test` \| `production`                                |
-| `PORT`, `HOST`                                              | `4000`, `0.0.0.0`             | API bind address                                                       |
-| `APP_ORIGIN`                                                | `http://localhost:5173`       | Exact CORS origin; no wildcard                                         |
-| `DATABASE_URL`, `DATABASE_SSL`                              | empty, `false`                | Without a URL the API runs read-only/degraded                          |
-| `MARKET_DATA_PROVIDER`                                      | `none`                        | `none` \| `mansa` \| `demo` (dev) \| `nse-vendor` (placeholder)        |
-| `ALLOW_DEMO_MARKET_DATA`                                    | `false`                       | Required opt-in for fixtures; refused when `NODE_ENV=production`       |
-| `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`             | empty                         | Placeholders. No default endpoint is invented                          |
-| `MANSA_API_BASE_URL`, `MANSA_API_KEY`                       | `https://mansaapi.com`, empty | Mansa adapter. HTTPS only; key is server-side and never returned       |
-| `MANSA_REQUEST_TIMEOUT_MS`                                  | `10000`                       | Per-request timeout                                                    |
-| `MANSA_DAILY_REQUEST_BUDGET`                                | `100`                         | Local ceiling matching the documented free tier                        |
-| `MANSA_CACHE_TTL_SECONDS`                                   | `300`                         | Snapshot cache lifetime; bounds upstream calls                         |
-| `HISTORICAL_DATA_PERMISSION_CONFIRMED`                      | `false`                       | Operator attestation; rows are withheld otherwise                      |
-| `ANNOUNCEMENTS_PERMISSION_CONFIRMED`                        | `false`                       | Separate attestation for issuer announcements                          |
-| `TELEGRAM_BOT_TOKEN`                                        | empty                         | Secret, server-side only; polling disabled when unset                  |
-| `SESSION_SECRET`                                            | placeholder                   | Reserved for a future auth implementation; no sessions exist yet       |
-| `LOG_LEVEL`                                                 | `info`                        | `fatal`\|`error`\|`warn`\|`info`\|`debug`\|`trace`\|`silent`           |
-| `ENABLE_SCHEDULER`                                          | `false`                       | Opt-in provider-health heartbeat, not an ingestion switch              |
-| `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT` | none                          | Supplied per import command; the importer refuses to run without both  |
-| `RUN_MIGRATIONS`                                            | unset                         | Container entrypoint only; applies migrations on start                 |
-| `MIGRATIONS_FOLDER`                                         | `./drizzle/generated`         | Directory `npm run db:migrate` reads; override when mounting elsewhere |
+| Variable                                                                      | Default                       | Notes                                                                                                  |
+| ----------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                                                                    | `development`                 | `development` \| `test` \| `production`                                                                |
+| `PORT`, `HOST`                                                                | `4000`, `0.0.0.0`             | API bind address                                                                                       |
+| `APP_ORIGIN`                                                                  | `http://localhost:5173`       | Exact CORS origin; no wildcard                                                                         |
+| `DATABASE_URL`, `DATABASE_SSL`                                                | empty, `false`                | Without a connection the API runs read-only/degraded                                                   |
+| `SQL_HOST`, `SQL_PORT`, `SQL_DB_NAME`, `SQL_ADMIN_USER`, `SQL_ADMIN_PASSWORD` | unset, `5432`                 | Alternative to `DATABASE_URL`; composed into one URL at startup. `DATABASE_URL` wins when both are set |
+| `MARKET_DATA_PROVIDER`                                                        | `none`                        | `none` \| `mansa` \| `demo` (dev) \| `nse-vendor` (placeholder)                                        |
+| `ALLOW_DEMO_MARKET_DATA`                                                      | `false`                       | Required opt-in for fixtures; refused when `NODE_ENV=production`                                       |
+| `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`                               | empty                         | Placeholders. No default endpoint is invented                                                          |
+| `MANSA_API_BASE_URL`, `MANSA_API_KEY`                                         | `https://mansaapi.com`, empty | Mansa adapter. HTTPS only; key is server-side and never returned                                       |
+| `MANSA_REQUEST_TIMEOUT_MS`                                                    | `10000`                       | Per-request timeout                                                                                    |
+| `MANSA_DAILY_REQUEST_BUDGET`                                                  | `100`                         | Local ceiling matching the documented free tier                                                        |
+| `MANSA_CACHE_TTL_SECONDS`                                                     | `300`                         | Snapshot cache lifetime; bounds upstream calls                                                         |
+| `HISTORICAL_DATA_PERMISSION_CONFIRMED`                                        | `false`                       | Operator attestation; rows are withheld otherwise                                                      |
+| `ANNOUNCEMENTS_PERMISSION_CONFIRMED`                                          | `false`                       | Separate attestation for issuer announcements                                                          |
+| `TELEGRAM_BOT_TOKEN`                                                          | empty                         | Secret, server-side only; polling disabled when unset                                                  |
+| `SESSION_SECRET`                                                              | placeholder                   | Reserved for a future auth implementation; no sessions exist yet                                       |
+| `LOG_LEVEL`                                                                   | `info`                        | `fatal`\|`error`\|`warn`\|`info`\|`debug`\|`trace`\|`silent`                                           |
+| `ENABLE_SCHEDULER`                                                            | `false`                       | Opt-in provider-health heartbeat, not an ingestion switch                                              |
+| `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT`                   | none                          | Supplied per import command; the importer refuses to run without both                                  |
+| `RUN_MIGRATIONS`                                                              | unset                         | Container entrypoint only; applies migrations on start                                                 |
+| `MIGRATIONS_FOLDER`                                                           | `./drizzle/generated`         | Directory `npm run db:migrate` reads; override when mounting elsewhere                                 |
 
 Secrets belong in the server environment or a secret manager. Never in a `VITE_*` variable,
 which is compiled into the browser bundle.
+
+### Two ways to configure the database
+
+Either one connection string:
+
+```dotenv
+DATABASE_URL=postgres://nse_pulse:local_dev_only_change_me@localhost:5432/nse_pulse
+```
+
+or the same connection as components, for environments that keep credentials apart:
+
+```dotenv
+SQL_HOST=localhost
+SQL_PORT=5432
+SQL_DB_NAME=nse_pulse
+SQL_ADMIN_USER=nse_pulse
+SQL_ADMIN_PASSWORD=local_dev_only_change_me
+```
+
+`DATABASE_URL` takes precedence if both are present, and a warning is logged. Values are
+URI-encoded, so a generated password containing `@`, `:` or `/` still works. Setting only part
+of the `SQL_*` group is a startup error naming the missing keys — never a silent degraded start.
+The password is not logged: `server_started` reports only the source (`DATABASE_URL` or `SQL_*`),
+host, port and database name.
 
 ## 9. Running locally
 

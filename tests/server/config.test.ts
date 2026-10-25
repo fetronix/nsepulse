@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
  */
 const configModuleUrl = new URL('../../src/server/config.ts', import.meta.url).href;
 const script = `
-import { config, isDemoMarketDataActive, isNseAdapterConfigured, isDatabaseConfigured } from ${JSON.stringify(configModuleUrl)};
-console.log(JSON.stringify({ config, isDemoMarketDataActive, isNseAdapterConfigured, isDatabaseConfigured }));
+import { config, isDemoMarketDataActive, isNseAdapterConfigured, isDatabaseConfigured, databaseConfig } from ${JSON.stringify(configModuleUrl)};
+console.log(JSON.stringify({ config, isDemoMarketDataActive, isNseAdapterConfigured, isDatabaseConfigured, databaseConfig }));
 `;
 
 const dir = mkdtempSync(join(tmpdir(), 'nse-config-'));
@@ -59,6 +59,73 @@ describe('environment configuration', () => {
 
   it('recognises a configured database', () => {
     expect(JSON.parse(run({ DATABASE_URL: 'postgres://user@localhost:5432/nse' })).isDatabaseConfigured).toBe(true);
+  });
+
+  it('composes a connection URL from the SQL_* component variables', () => {
+    const parsed = JSON.parse(
+      run({
+        SQL_HOST: 'db.local',
+        SQL_PORT: '5433',
+        SQL_DB_NAME: 'nse_pulse',
+        SQL_ADMIN_USER: 'pulse',
+        SQL_ADMIN_PASSWORD: 'p@ss:w/ord'
+      })
+    );
+    expect(parsed.isDatabaseConfigured).toBe(true);
+    // Values are URI-encoded so reserved characters in a generated password cannot corrupt
+    // the connection string.
+    expect(parsed.config.DATABASE_URL).toBe('postgres://pulse:p%40ss%3Aw%2Ford@db.local:5433/nse_pulse');
+    expect(parsed.databaseConfig).toEqual({
+      source: 'SQL_*',
+      host: 'db.local',
+      port: 5433,
+      database: 'nse_pulse',
+      warning: null
+    });
+  });
+
+  it('defaults the SQL_* port and tolerates a password-less local server', () => {
+    const parsed = JSON.parse(
+      run({ SQL_HOST: '127.0.0.1', SQL_DB_NAME: 'nse', SQL_ADMIN_USER: 'postgres', SQL_ADMIN_PASSWORD: '' })
+    );
+    expect(parsed.config.DATABASE_URL).toBe('postgres://postgres@127.0.0.1:5432/nse');
+    expect(parsed.databaseConfig.port).toBe(5432);
+  });
+
+  it('prefers DATABASE_URL and says so when both forms are set', () => {
+    const parsed = JSON.parse(
+      run({
+        DATABASE_URL: 'postgres://user@localhost:5432/primary',
+        SQL_HOST: 'other-host',
+        SQL_DB_NAME: 'other_db',
+        SQL_ADMIN_USER: 'other_user'
+      })
+    );
+    expect(parsed.config.DATABASE_URL).toBe('postgres://user@localhost:5432/primary');
+    expect(parsed.databaseConfig.source).toBe('DATABASE_URL');
+    expect(parsed.databaseConfig.host).toBe('localhost');
+    expect(parsed.databaseConfig.warning).toMatch(/DATABASE_URL takes precedence/);
+  });
+
+  it('refuses a half-configured SQL_* group instead of silently degrading', () => {
+    try {
+      run({ SQL_HOST: 'localhost', SQL_ADMIN_PASSWORD: 'secret-value' });
+      throw new Error('expected the configuration to be rejected');
+    } catch (error) {
+      const failure = error as { status?: number; stderr?: string };
+      expect(failure.status).toBe(1);
+      expect(failure.stderr).toContain('SQL_DB_NAME');
+      expect(failure.stderr).toContain('SQL_ADMIN_USER');
+      // The message names missing keys; it must never echo the value that was supplied.
+      expect(failure.stderr).not.toContain('secret-value');
+    }
+  });
+
+  it('never exposes the password through the non-secret connection description', () => {
+    const parsed = JSON.parse(
+      run({ SQL_HOST: 'localhost', SQL_DB_NAME: 'nse', SQL_ADMIN_USER: 'postgres', SQL_ADMIN_PASSWORD: 'hunter2' })
+    );
+    expect(JSON.stringify(parsed.databaseConfig)).not.toContain('hunter2');
   });
 
   it('rejects an invalid enum and exits non-zero with field errors', () => {

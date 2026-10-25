@@ -56,7 +56,7 @@ describe('classifyDatabaseError', () => {
       kind: 'SCHEMA_MISSING',
       code: '42P01',
       message: 'relation "securities" does not exist',
-      hint: 'The database is reachable but the application tables do not exist. Run `npm run db:migrate` against this DATABASE_URL, then retry.',
+      hint: 'The database is reachable but the application tables do not exist. Run `npm run db:migrate` against this database (the same DATABASE_URL or SQL_* settings), then retry.',
       object: 'securities'
     });
     expect(isSchemaMissing(drizzleError('q', { code: '42P01', message: 'relation "x" does not exist' }))).toBe(true);
