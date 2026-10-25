@@ -129,9 +129,5 @@ jobs:
       - run: npm ci
       - name: npm audit (high and critical)
         run: npm audit --audit-level=high
-      - name: Verify no tracked .env files contain secrets
-        run: |
-          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
-            echo "::error::Tracked .env file detected; secrets must never be committed."
-            exit 1
-          fi
+      - name: Repository secret scan
+        run: npm run check:secrets

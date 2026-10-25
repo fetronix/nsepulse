@@ -5,3 +5,11 @@ dist/
 !.env.example
 coverage/
 .vite/
+*.log
+logs/
+.pgdata/
+*.dump
+*.sql.gz
+*.tar.gz
+.DS_Store
+*.local

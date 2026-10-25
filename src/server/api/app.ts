@@ -154,8 +154,10 @@ export function createApp(options: AppOptions = {}) {
   /** Official announcements from an enabled, permitted source; never scraped. */
   app.get('/api/v1/announcements', async (req, res, next) => {
     const parsed = z.object({ limit: z.coerce.number().int().min(1).max(50).default(25) }).safeParse(req.query);
-    if (!parsed.success)
-      return res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten().fieldErrors });
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten().fieldErrors });
+      return;
+    }
     try {
       res.json(await dataSources.announcements(parsed.data.limit));
     } catch (error) {
@@ -178,8 +180,10 @@ export function createApp(options: AppOptions = {}) {
         offset: z.coerce.number().int().min(0).max(100_000).default(0)
       })
       .safeParse(req.query);
-    if (!parsed.success)
-      return res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten().fieldErrors });
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten().fieldErrors });
+      return;
+    }
     try {
       res.json(await market.securities(parsed.data.q, parsed.data.limit, parsed.data.offset));
     } catch (error) {
@@ -192,7 +196,10 @@ export function createApp(options: AppOptions = {}) {
       .trim()
       .regex(/^[A-Za-z0-9.-]{1,24}$/)
       .safeParse(req.params.symbol);
-    if (!symbol.success) return res.status(400).json({ error: 'Invalid symbol format' });
+    if (!symbol.success) {
+      res.status(400).json({ error: 'Invalid symbol format' });
+      return;
+    }
     try {
       const result = await market.quote(symbol.data.toUpperCase());
       res.status(result.security ? 200 : 404).json(result);
@@ -206,7 +213,10 @@ export function createApp(options: AppOptions = {}) {
       .trim()
       .regex(/^[A-Za-z0-9.-]{1,24}$/)
       .safeParse(req.params.symbol);
-    if (!symbol.success) return res.status(400).json({ error: 'Invalid symbol format' });
+    if (!symbol.success) {
+      res.status(400).json({ error: 'Invalid symbol format' });
+      return;
+    }
     try {
       const result = await market.technicals(symbol.data.toUpperCase());
       res.status(result.security ? 200 : 404).json(result);
@@ -225,10 +235,16 @@ export function createApp(options: AppOptions = {}) {
         to: z.coerce.date().optional()
       })
       .safeParse({ ...req.query, symbol: req.params.symbol });
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid symbol or date range' });
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid symbol or date range' });
+      return;
+    }
     const to = parsed.data.to ?? new Date();
     const from = parsed.data.from ?? new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
-    if (from > to) return res.status(400).json({ error: '`from` must be on or before `to`' });
+    if (from > to) {
+      res.status(400).json({ error: '`from` must be on or before `to`' });
+      return;
+    }
     try {
       res.json(await market.history(parsed.data.symbol.toUpperCase(), from, to));
     } catch (error) {

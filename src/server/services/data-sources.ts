@@ -253,12 +253,29 @@ export class DataSourceService {
         items: []
       };
     }
+    /**
+     * Only absolute HTTP(S) links are surfaced. Anything else (javascript:, data:, blank)
+     * is dropped rather than rendered as a clickable source for a stored record.
+     */
+    const safeRows = rows.filter((row) => {
+      try {
+        const url = new URL(row.originalUrl);
+        return url.protocol === 'https:' || url.protocol === 'http:';
+      } catch {
+        return false;
+      }
+    });
+    const droppedForUnsafeUrl = rows.length - safeRows.length;
+
     return {
       state: 'OK',
-      reason: null,
+      reason:
+        droppedForUnsafeUrl > 0
+          ? `${droppedForUnsafeUrl} stored announcement(s) were hidden because their source link was not an absolute HTTP(S) URL.`
+          : null,
       permission,
       freshness,
-      items: rows.map((row) => ({
+      items: safeRows.map((row) => ({
         id: row.id,
         symbol: null,
         title: row.title,

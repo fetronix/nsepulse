@@ -12,7 +12,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "types": ["node"],
-    "declaration": true
+    "declaration": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true
   },
   "include": ["src/server/**/*.ts", "src/shared/**/*.ts"]
 }

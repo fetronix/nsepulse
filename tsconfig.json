@@ -15,7 +15,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vite/client", "vitest/globals"]
+    "types": ["vite/client", "vitest/globals"],
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true
   },
   "include": ["src/client", "src/shared", "vite.config.ts", "tests"]
 }

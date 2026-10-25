@@ -175,3 +175,42 @@ describe('announcement endpoint states', () => {
     });
   });
 });
+
+describe('announcement link safety', () => {
+  it('hides stored announcements whose source link is not an absolute HTTP(S) URL', async () => {
+    store.announcements = [
+      {
+        id: 'safe',
+        title: 'Safe announcement',
+        publisher: 'Example PLC',
+        originalUrl: 'https://example.invalid/safe.pdf',
+        publishedAt: new Date('2026-10-20T09:00:00.000Z'),
+        verified: true,
+        sourceType: 'ISSUER_ANNOUNCEMENT'
+      },
+      {
+        id: 'unsafe',
+        title: 'Unsafe announcement',
+        publisher: 'Example PLC',
+        originalUrl: 'javascript:alert(1)',
+        publishedAt: new Date('2026-10-20T09:00:00.000Z'),
+        verified: true,
+        sourceType: 'ISSUER_ANNOUNCEMENT'
+      },
+      {
+        id: 'malformed',
+        title: 'Malformed announcement',
+        publisher: 'Example PLC',
+        originalUrl: 'not a url',
+        publishedAt: null,
+        verified: false,
+        sourceType: 'ISSUER_ANNOUNCEMENT'
+      }
+    ];
+    const permitted = { ...DEFAULT_PROVIDER_SETTINGS, announcementsPermissionConfirmed: true };
+    const response = await service(permitted).announcements();
+    expect(response.items.map((item) => item.id)).toEqual(['safe']);
+    expect(response.reason).toContain('not an absolute HTTP(S) URL');
+    expect(JSON.stringify(response)).not.toContain('javascript:');
+  });
+});
