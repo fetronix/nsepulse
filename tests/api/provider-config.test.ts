@@ -17,8 +17,27 @@ describe('provider configuration endpoints', () => {
     expect(body.access.level).toBe('UNKNOWN');
     expect(body.access.entitlement).toBe('NONE');
     expect(body.coverage.state).toBe('NOT_DECLARED');
-    expect(body.credentials.length).toBe(2);
-    expect(body.credentials.every((credential: { state: string }) => credential.state === 'MISSING')).toBe(true);
+    // Every provider the application can build is represented, and no credential is
+    // reported as configured in a default environment.
+    expect(body.credentials.map((credential: { key: string }) => credential.key).sort()).toEqual([
+      'MANSA_API_BASE_URL',
+      'MANSA_API_KEY',
+      'NSE_VENDOR_API_BASE_URL',
+      'NSE_VENDOR_API_KEY'
+    ]);
+    // The Mansa base URL has a documented default, so it reads as configured; every secret
+    // is absent in a default environment.
+    const byKey = (key: string) => body.credentials.find((credential: { key: string }) => credential.key === key);
+    expect(byKey('MANSA_API_BASE_URL').state).toBe('CONFIGURED');
+    expect(
+      body.credentials
+        .filter((credential: { secret: boolean }) => credential.secret)
+        .every((credential: { state: string }) => credential.state === 'MISSING')
+    ).toBe(true);
+    // A missing Mansa key must not block the disabled adapter that is actually active.
+    const mansaKey = byKey('MANSA_API_KEY');
+    expect(mansaKey.blockingForActiveAdapter).toBe(false);
+    expect(mansaKey.secret).toBe(true);
     expect(body.retrieval.lastSuccessfulRetrievalAt).toBeNull();
     expect(body.tests.connection.status).toBe('NOT_RUN');
     expect(body.tests.dataValidation.status).toBe('NOT_RUN');

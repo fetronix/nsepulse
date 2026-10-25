@@ -69,8 +69,18 @@ describe('provider configuration view', () => {
     expect(view.provider.demo).toBe(false);
     expect(view.environment.liveQuoteAdapterEnabled).toBe(false);
     expect(view.environment.enforcedDefaultProvider).toBe('none');
-    expect(view.credentials.map((credential) => credential.state)).toEqual(['MISSING', 'MISSING']);
-    expect(view.credentials.filter((credential) => credential.secret).length).toBe(1);
+    // Every provider the application can build is represented; secrets are all absent and
+    // only the non-secret Mansa base URL carries its documented default.
+    expect(view.credentials.map((credential) => credential.key)).toEqual([
+      'MANSA_API_KEY',
+      'MANSA_API_BASE_URL',
+      'NSE_VENDOR_API_BASE_URL',
+      'NSE_VENDOR_API_KEY'
+    ]);
+    expect(view.credentials.filter((credential) => credential.secret).length).toBe(2);
+    expect(
+      view.credentials.filter((credential) => credential.secret).every((credential) => credential.state === 'MISSING')
+    ).toBe(true);
     expect(view.coverage.state).toBe('NOT_DECLARED');
     expect(view.coverage.symbols).toBeNull();
     expect(view.access.level).toBe('UNKNOWN');
@@ -125,8 +135,16 @@ describe('provider configuration view', () => {
       vendorApiKeyConfigured: true
     });
     const view = await service.view();
-    expect(view.credentials.map((credential) => credential.state)).toEqual(['CONFIGURED', 'CONFIGURED']);
-    expect(view.credentials[1]!.note).toContain('never returned');
+    const states = view.credentials.map((credential) => [credential.key, credential.state]);
+    expect(states).toEqual([
+      ['MANSA_API_KEY', 'MISSING'],
+      ['MANSA_API_BASE_URL', 'CONFIGURED'],
+      ['NSE_VENDOR_API_BASE_URL', 'CONFIGURED'],
+      ['NSE_VENDOR_API_KEY', 'CONFIGURED']
+    ]);
+    expect(view.credentials.find((credential) => credential.key === 'NSE_VENDOR_API_KEY')!.note).toContain(
+      'never returned'
+    );
     expect(JSON.stringify(view.credentials)).not.toContain('http');
     expect(view.credentials.every((credential) => !('value' in credential))).toBe(true);
   });
