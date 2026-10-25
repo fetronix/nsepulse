@@ -17,6 +17,33 @@ export interface HistoricalRequest {
   interval: '1d' | '1w' | '1mo';
 }
 
+export type MoverType = 'gainers' | 'losers';
+
+export interface MoversRequest {
+  type: MoverType;
+  limit?: number;
+}
+
+/**
+ * A mover row. `price` and `changePercent` are nullable on purpose: if the provider omits
+ * them the field stays absent rather than being computed from unrelated values.
+ */
+export interface MoverQuote {
+  symbol: string;
+  price: number | null;
+  changePercent: number | null;
+  currency: 'KES';
+  marketEventAt: string | null;
+  dataMode: DataMode;
+}
+
+export interface MoversSnapshot {
+  type: MoverType;
+  items: MoverQuote[];
+  retrievedAt: string;
+  freshnessNote: string;
+}
+
 export interface ProviderCapabilities {
   displayName: string;
   adapterVersion: string;
@@ -50,6 +77,15 @@ export interface MarketDataProvider {
   getHistory(request: HistoricalRequest): Promise<MarketObservation[]>;
   /** Local checks only. Must not perform an outbound call unless a contracted adapter exists. */
   selfTest(now?: Date): Promise<ProviderSelfTest>;
+  /**
+   * Optional: whether this adapter performs outbound network calls. Present so callers can
+   * distinguish a live adapter from the disabled/demo placeholders without instanceof checks.
+   */
+  readonly live?: boolean;
+  /** Optional: gainers/losers, when the provider documents such an endpoint. */
+  getMovers?(request: MoversRequest): Promise<MoversSnapshot | null>;
+  /** Optional: secret-free reason for the most recent retrieval failure in this process. */
+  describeLastFailure?(): string | null;
 }
 
 const NOT_DECLARED_COVERAGE: CoverageView = {

@@ -9,14 +9,28 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional().or(z.literal('')),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
   /**
-   * `none` keeps the live quote adapter disabled. `demo` is a local fixture adapter for
-   * development only and requires ALLOW_DEMO_MARKET_DATA=true. `nse-vendor` selects a
-   * placeholder adapter that performs no request until a real implementation exists.
+   * `none` keeps the live quote adapter disabled. `mansa` selects the Mansa API adapter
+   * (https://mansaapi.com/docs) and additionally requires MANSA_API_KEY. `demo` is a local
+   * fixture adapter for development only and requires ALLOW_DEMO_MARKET_DATA=true.
+   * `nse-vendor` selects a placeholder adapter that performs no request until a real
+   * implementation exists.
    */
   MARKET_DATA_PROVIDER: z.string().default('none'),
   ALLOW_DEMO_MARKET_DATA: z.enum(['true', 'false']).default('false'),
   NSE_VENDOR_API_BASE_URL: z.string().url().optional().or(z.literal('')),
   NSE_VENDOR_API_KEY: z.string().optional().or(z.literal('')),
+  /**
+   * Mansa market-data adapter. The key is read here and passed straight to the adapter; it
+   * is never stored on provider settings, never logged and never returned by any route.
+   * The base URL must be HTTPS: the adapter refuses to send a bearer token to anything else.
+   */
+  MANSA_API_BASE_URL: z.string().url().default('https://mansaapi.com'),
+  MANSA_API_KEY: z.string().optional().or(z.literal('')),
+  MANSA_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(10_000),
+  /** Free tier is documented as 100 requests/day; the adapter refuses to exceed this. */
+  MANSA_DAILY_REQUEST_BUDGET: z.coerce.number().int().positive().max(10_000).default(100),
+  /** Snapshot cache lifetime. Docs state markets endpoints target 30-minute freshness. */
+  MANSA_CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative().max(3600).default(300),
   /** Operator confirmation that retained stored historical data may be displayed/derived. */
   HISTORICAL_DATA_PERMISSION_CONFIRMED: z.enum(['true', 'false']).default('false'),
   /** Operator confirmation that issuer announcements may be stored and republished. */
@@ -47,3 +61,6 @@ export const isDemoMarketDataActive =
 
 /** A configured base URL/key is not a working integration; an adapter must still be implemented. */
 export const isNseAdapterConfigured = false;
+
+/** Whether a Mansa key is present. Presence is not proof of a working integration. */
+export const isMansaKeyConfigured = Boolean(config.MANSA_API_KEY);

@@ -2,7 +2,13 @@ import type { MarketDataProvider } from './types.js';
 import { ProviderRegistry, UnconfiguredProvider } from './types.js';
 import { DemoFixtureProvider } from './demo.js';
 import { VendorPendingProvider } from './vendor-pending.js';
-import { DEFAULT_PROVIDER_SETTINGS, providerSettingsFromEnv, type ProviderSettings } from './settings.js';
+import { MansaProvider } from './mansa/provider.js';
+import {
+  DEFAULT_PROVIDER_SETTINGS,
+  mansaCredentialsFromEnv,
+  providerSettingsFromEnv,
+  type ProviderSettings
+} from './settings.js';
 
 export interface ProviderSelection {
   settings: ProviderSettings;
@@ -19,10 +25,24 @@ export interface ProviderSelection {
  * Build the provider boundary from configuration.
  *
  * MARKET_DATA_PROVIDER defaults to `none`, which keeps the live quote adapter disabled.
+ * `mansa` builds the real Mansa adapter, but only when MANSA_API_KEY is present; without a
+ * key the disabled adapter is used and the reason is reported, so a missing secret degrades
+ * safely instead of crashing unrelated functionality.
  * Demo fixtures additionally require ALLOW_DEMO_MARKET_DATA=true and a non-production
  * environment. No selection path invents an endpoint or enables an unimplemented adapter.
  */
-export function createProviderSelection(settings: ProviderSettings = DEFAULT_PROVIDER_SETTINGS): ProviderSelection {
+export interface ProviderSelectionOverrides {
+  /**
+   * Credentials for the Mansa adapter. Defaults to the server environment; tests inject
+   * values here so no real secret is ever required to exercise the selection logic.
+   */
+  mansaCredentials?: { baseUrl: string; apiKey: string };
+}
+
+export function createProviderSelection(
+  settings: ProviderSettings = DEFAULT_PROVIDER_SETTINGS,
+  overrides: ProviderSelectionOverrides = {}
+): ProviderSelection {
   const requestedProvider = (settings.provider || 'none').trim().toLowerCase();
   const demoRequested = requestedProvider === 'demo';
   const productionBlocked = settings.nodeEnv === 'production';
@@ -47,6 +67,31 @@ export function createProviderSelection(settings: ProviderSettings = DEFAULT_PRO
       warnings.push(
         'Demo fixture adapter is active. Every value is synthetic, is not NSE market data, and must not be presented as a real price.'
       );
+    }
+  } else if (requestedProvider === 'mansa') {
+    const credentials = overrides.mansaCredentials ?? mansaCredentialsFromEnv();
+    if (!credentials.apiKey.trim()) {
+      provider = new UnconfiguredProvider();
+      warnings.push(
+        'MARKET_DATA_PROVIDER=mansa but MANSA_API_KEY is empty. The adapter is disabled and no request will be made.'
+      );
+    } else {
+      try {
+        provider = new MansaProvider({
+          baseUrl: credentials.baseUrl,
+          apiKey: credentials.apiKey,
+          dailyRequestBudget: settings.mansaDailyRequestBudget,
+          cacheTtlMs: settings.mansaCacheTtlMs
+        });
+        warnings.push(
+          'Mansa adapter active. Data is a delayed snapshot per Mansa’s documented 30-minute freshness target; it is not real-time and a Mansa key is not an NSE redistribution licence.'
+        );
+      } catch (error) {
+        provider = new UnconfiguredProvider();
+        warnings.push(
+          `Mansa adapter could not be constructed (${error instanceof Error ? error.message : 'unknown error'}). No provider is enabled.`
+        );
+      }
     }
   } else if (requestedProvider === 'nse-vendor') {
     provider = new VendorPendingProvider({

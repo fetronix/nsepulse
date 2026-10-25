@@ -28,6 +28,8 @@ export interface MarketObservation {
   dataMode: DataMode;
   validationStatus: ValidationStatus;
   volume?: number | null;
+  /** Percentage change, only when the provider supplied it or it follows from its own fields. */
+  changePercent?: number | null;
   previousClose?: number | null;
   open?: number | null;
   high?: number | null;

@@ -28,7 +28,8 @@
     "start:bot": "node dist/server/telegram/standalone.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/server/db/migrate.ts",
-    "db:check": "tsx src/server/db/check.ts"
+    "db:check": "tsx src/server/db/check.ts",
+    "mansa:probe": "tsx scripts/mansa-probe.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
