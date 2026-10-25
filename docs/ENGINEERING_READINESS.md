@@ -312,6 +312,30 @@ Adding `MIGRATIONS_FOLDER` to the migration runner created a variable that the c
 `src/server/config.ts`, and fails if any is missing from `.env.example`. Shown to fail by removing
 the `MIGRATIONS_FOLDER` line again.
 
+## Fresh-clone verification
+
+Run on a clean clone of the branch head (`d0b2a64`) rather than on the working tree, to prove the
+committed state is self-sufficient:
+
+| Step                                                   | Result                                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `git clone --depth 1 --branch arena/312bd37d-nsepulse` | OK, head `d0b2a64`                                                                                           |
+| `npm ci`                                               | `added 430 packages in 5s` (no lockfile drift)                                                               |
+| `npm run typecheck`                                    | pass, no output                                                                                              |
+| `npm run lint`                                         | pass, no output                                                                                              |
+| `npm run format:check`                                 | `All matched files use Prettier code style!`                                                                 |
+| `npm run check:secrets`                                | `102 file(s) scanned, no credential-shaped strings found`                                                    |
+| `npm run test:coverage`                                | `29 passed` files, `225 passed` tests, 88.15/80.58/89.95/88.21                                               |
+| `npm run build:all`                                    | pass, `dist/index.html`, `dist/server/index.js`, `dist/server/db/migrate.js` present                         |
+| `npm audit --audit-level=high`                         | `found 0 vulnerabilities`                                                                                    |
+| `npm run test:integration:verified`                    | `11 passed`, assertion `total 11, passed 11, failed 0, pending/skipped 0`                                    |
+| Built server against the drill database                | `/api/v1/health/live` 200, `/api/v1/health/ready` 200, `/api/v1/securities?q=PASSC` returned `PASSC1,PASSC2` |
+| Runtime log scan                                       | 0 occurrences of `password`/`secret`/`changeme`                                                              |
+| `git status --short` after all runs                    | empty (no generated file is tracked)                                                                         |
+
+The scan covers 102 files at the branch head, up from 100 before this pass, because the two new
+test files are now tracked. Both the clone and the working tree report the same count.
+
 ## How to re-run everything
 
 ```bash
