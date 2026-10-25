@@ -1,9 +1,9 @@
 import cron from 'node-cron';
 import { config } from '../config.js';
 import { withAdvisoryLock } from '../db/client.js';
-import { ProviderRegistry } from '../providers/types.js';
+import { defaultProviderSelection } from '../providers/factory.js';
 
-const jobs = new ProviderRegistry();
+const jobs = defaultProviderSelection().registry;
 /** Retry helper for idempotent background work; exponential backoff with bounded delay. */
 export async function retry<T>(task: () => Promise<T>, attempts = 3, initialDelayMs = 250): Promise<T> {
   let lastError: unknown;

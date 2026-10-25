@@ -28,6 +28,8 @@ For a separate bot process, configure its environment with `TELEGRAM_BOT_TOKEN`,
 - Logs are JSON-shaped events on stdout/stderr. Do not add raw provider payloads, secrets, user content or full Telegram update objects to logs.
 - Monitor API uptime, DB connectivity/latency, job status, Telegram delivery failures, provider timestamps, and ingestion quality once those systems are connected.
 - App `status: ok` is not proof that data exists or is fresh; inspect the independent database/provider fields.
+- Provider commissioning: `GET /api/v1/providers/configuration` (dashboard **Provider setup**) reports integration state, credential presence without values, declared coverage, last retrieval, test results and licensing requirements. `POST /api/v1/providers/test` runs local checks only and reports whether a network call was made (none in the bundled adapters).
+- Data-source permissions: `GET /api/v1/data-sources` shows each source's permission basis and freshness label. Historical and announcement endpoints stay withheld until the matching `*_PERMISSION_CONFIRMED` attestation is set.
 
 ## PostgreSQL backup/restore
 
@@ -58,7 +60,11 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 - Dashboard cannot reach API: ensure reverse proxy maps `/api` to port `4000`; `APP_ORIGIN` must match browser origin.
 - `DATABASE_URL` missing: only degraded empty-state behavior is expected; configure Postgres and run migrations.
 - DB unreachable: check network/firewall, TLS settings and role grants; do not put credentials in diagnostic logs.
-- Provider `UNCONFIGURED`: expected until access agreement, supported adapter, endpoint documentation and secrets are provided.
+- Provider `UNCONFIGURED`: expected until access agreement, supported adapter, endpoint documentation and secrets are provided. Credential presence alone does not change this state.
+- Demo banner visible: `MARKET_DATA_PROVIDER=demo` is active. Fixture values are synthetic; set `MARKET_DATA_PROVIDER=none` and `ALLOW_DEMO_MARKET_DATA=false` before any deployment. Demo mode is refused in production.
+- Configuration page shows credentials `MISSING`: expected. Set the values only as server-side secrets after a contract and API specification exist; never add them to the browser bundle.
+- Historical data present but withheld: `HISTORICAL_DATA_PERMISSION_CONFIRMED` is not `true`. Record written permission before enabling; the flag is an operator attestation, not a licence.
+- No announcements shown: expected unless permission is recorded and an `ISSUER_ANNOUNCEMENT` source row is enabled. The application never scrapes or fetches announcements itself.
 - Quotes absent: importer/feed are not active; do not use synthetic or scraped values as a workaround.
 - Bot inactive: configure token on exactly one polling process and check Telegram connectivity; the token is secret.
 - Scheduler disabled: set `ENABLE_SCHEDULER=true` with DB available only if the provider-health heartbeat is wanted. It does not ingest data.

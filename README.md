@@ -9,7 +9,9 @@ A Kenya-first market research application scaffold with a React/Vite dashboard, 
 - **Web:** React 18 + TypeScript + Vite. Navy/green responsive dashboard with API-backed overview, security search, quote lookup, and source/health disclosures.
 - **API:** Express REST API under `/api/v1`; helmet, strict configured CORS origin, JSON size limit, Zod query validation, rate limit, safe error responses.
 - **Storage:** PostgreSQL, Drizzle ORM, 31-table schema and versioned SQL migration in `drizzle/generated/`.
-- **Provider boundary:** replaceable quote/history provider interface. Default is an explicitly unconfigured adapter that returns no data and does not scrape pages.
+- **Provider boundary:** replaceable `MarketDataProvider` interface with `status()`, `capabilities()`, quote/history methods and local `selfTest()`. Default is an explicitly unconfigured adapter that returns no data, invents no endpoint and does not scrape pages. A clearly labelled, opt-in demo fixture adapter exists for development only.
+- **Provider commissioning:** the dashboard **Provider setup** page and `GET /api/v1/providers/configuration` show provider name and integration status, credential presence (values never exposed), declared coverage, access level, last successful retrieval, connection/data-validation results and outstanding licensing requirements.
+- **Independent sources:** stored historical sessions and official company announcements are served separately from the live quote adapter, each with an explicit permission basis and freshness label.
 - **Research:** SMA, EMA, RSI, MACD, ATR, annualized historical volatility; dividend scenario, market capitalization, weighted scorecard, alert condition, and hypothetical-position calculation utilities.
 - **Telegram:** grammY bot with `/start`, `/help`, `/market`, `/quote`, `/status`. Polling activates only when a token is configured. Unsupported data is reported as unavailable.
 - **Jobs:** scheduler is disabled by default. Optional provider-health heartbeat uses a PostgreSQL advisory lock; it does not poll market data.
@@ -46,8 +48,10 @@ See [`.env.example`](.env.example). Important variables:
 - `DATABASE_URL`: PostgreSQL connection string.
 - `DATABASE_SSL=true`: use verified TLS to PostgreSQL (the default is false for local development; enable for hosted databases).
 - `APP_ORIGIN`: exact browser origin allowed by Express CORS.
-- `MARKET_DATA_PROVIDER`: remains `none` unless an adapter is implemented for a confirmed provider contract.
-- `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`: placeholders only; do not fill until NSE/vendor API docs and licensing are reviewed. No default endpoint is invented.
+- `MARKET_DATA_PROVIDER`: remains `none` unless a provider is selected and a real adapter is implemented for a confirmed contract. `demo` (development only) selects synthetic fixtures; `nse-vendor` is a placeholder that makes no request.
+- `ALLOW_DEMO_MARKET_DATA`: explicit opt-in required for demo fixtures; ignored/refused when `NODE_ENV=production`.
+- `NSE_VENDOR_API_BASE_URL`, `NSE_VENDOR_API_KEY`: placeholders only; do not fill until NSE/vendor API docs and licensing are reviewed. No default endpoint is invented, and credential presence alone never enables live data.
+- `HISTORICAL_DATA_PERMISSION_CONFIRMED`, `ANNOUNCEMENTS_PERMISSION_CONFIRMED`: operator attestations that written permission for those independent sources is on file. Default `false`, which withholds the data.
 - `TELEGRAM_BOT_TOKEN`: optional, secret, server-side only.
 - `ENABLE_SCHEDULER`: opt-in provider-health heartbeat; not an ingestion switch.
 
@@ -57,6 +61,10 @@ OpenAPI JSON: `GET /api/v1/docs`; static YAML: [`docs/openapi.yaml`](docs/openap
 
 - `GET /api/v1/health` — app, database and provider status.
 - `GET /api/v1/providers` — provider adapter status.
+- `GET /api/v1/providers/configuration` — commissioning view: credentials (presence only), coverage, access level, last retrieval, test results and licensing.
+- `POST /api/v1/providers/test` — local connection/data-validation checks; states whether any network call was made (none today).
+- `GET /api/v1/data-sources` — per-source permission basis and freshness labels, including independent historical and announcement sources.
+- `GET /api/v1/announcements` — officially sourced announcements only; returns an explicit permission/store/empty state otherwise.
 - `GET /api/v1/market/overview` — no fabricated indices/activity; displays missing-source state.
 - `GET /api/v1/securities?q=&limit=25&offset=0` — imported security master only.
 - `GET /api/v1/quotes/{symbol}` — latest stored quote/provenance or honest unavailable reason.
@@ -72,6 +80,15 @@ Example when the source master or quote is missing:
   "reason": "Security not found in the configured security master."
 }
 ```
+
+## Demo mode (development only)
+
+```bash
+MARKET_DATA_PROVIDER=demo
+ALLOW_DEMO_MARKET_DATA=true
+```
+
+Three synthetic fixtures (`SCOM`, `EQTY`, `KEGN`) with deliberately unrealistic prices exercise the dashboard without credentials. Every value is labelled `demo`, uses `dataMode: UNKNOWN` and the source `DEMO FIXTURE — SYNTHETIC VALUES, NOT AN NSE QUOTE`; the UI shows a permanent demo banner and the API reports `liveQuoteAdapterEnabled: false`. Demo mode is refused in production and must be disabled before any deployment. See [provider configuration guide](docs/PROVIDER_SETUP.md).
 
 ## Security master import
 
@@ -98,7 +115,7 @@ npm run build:api
 npm audit
 ```
 
-Current automated checks use local deterministic fixtures and no real provider/database credentials. They are **mock/fixture tests**, not real-provider integration tests. PostgreSQL migration execution and restore tests require a reachable PostgreSQL service and were not verified in the current workspace.
+Current automated checks use local deterministic fixtures and no real provider/database credentials. They are **mock/fixture tests**, not real-provider integration tests. Provider-configuration tests assert that credential values never appear in API responses and that demo data cannot be enabled without an explicit opt-in outside production. PostgreSQL migration execution and restore tests require a reachable PostgreSQL service and were not verified in the current workspace.
 
 ## Data policy
 
