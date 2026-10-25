@@ -76,4 +76,11 @@ describe('environment configuration', () => {
   it('rejects a malformed vendor base URL rather than passing it through', () => {
     expect(() => run({ NSE_VENDOR_API_BASE_URL: 'not-a-url' })).toThrow();
   });
+
+  it('accepts every documented pino level and rejects unknown log levels', () => {
+    for (const level of ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']) {
+      expect(JSON.parse(run({ LOG_LEVEL: level })).config.LOG_LEVEL).toBe(level);
+    }
+    expect(() => run({ LOG_LEVEL: 'verbose' })).toThrow();
+  });
 });

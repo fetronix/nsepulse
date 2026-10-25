@@ -23,7 +23,8 @@ const envSchema = z.object({
   ANNOUNCEMENTS_PERMISSION_CONFIRMED: z.enum(['true', 'false']).default('false'),
   TELEGRAM_BOT_TOKEN: z.string().optional().or(z.literal('')),
   SESSION_SECRET: z.string().optional().or(z.literal('')),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  /** Pino levels. `silent` disables output entirely; `fatal` is the quietest active level. */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   ENABLE_SCHEDULER: z.enum(['true', 'false']).default('false')
 });
 

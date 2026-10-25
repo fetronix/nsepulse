@@ -6,6 +6,19 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      description: Process-level check with no dependency calls. Safe for container and orchestrator probes.
+      responses:
+        '200': { description: 'status=ok, version, uptimeSeconds, timestamp and reporting timezone' }
+  /health/ready:
+    get:
+      summary: Readiness probe
+      description: Aggregates process, database, provider and data-freshness checks. An unconfigured database is reported as ok (nothing to depend on); a configured but unreachable database is not ok.
+      responses:
+        '200': { description: 'status=ready with per-check detail' }
+        '503': { description: 'status=not_ready; at least one blocking check failed' }
   /health:
     get:
       summary: Application, database and provider health
