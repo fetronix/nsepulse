@@ -44,7 +44,10 @@ export const openApi = {
       get: {
         summary: 'NSE overview, session, indices and freshness',
         responses: {
-          '200': { description: 'Empty arrays indicate no configured observations, not zero market activity.' }
+          '200': {
+            description:
+              'Empty arrays indicate no configured observations, not zero market activity. `database.state` is INITIALISED, SCHEMA_MISSING or UNAVAILABLE; when the schema is missing, counts are null and `database.hint` explains the fix.'
+          }
         }
       }
     },
@@ -56,7 +59,10 @@ export const openApi = {
           { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } },
           { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 } }
         ],
-        responses: { '200': { description: 'Securities from database only; no static universe is implied.' } }
+        responses: {
+          '200': { description: 'Securities from database only; no static universe is implied.' },
+          '503': { description: 'Database reachable but the schema is missing, or the database is unavailable.' }
+        }
       }
     },
     '/quotes/{symbol}': {

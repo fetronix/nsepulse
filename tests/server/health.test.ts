@@ -5,7 +5,17 @@ import { DemoFixtureProvider } from '../../src/server/providers/demo.js';
 import { VendorPendingProvider } from '../../src/server/providers/vendor-pending.js';
 import type { ProviderStatus } from '../../src/shared/domain.js';
 
-const database = { configured: false, reachable: false, message: 'DATABASE_URL is not configured.' };
+const database = {
+  configured: false,
+  reachable: false,
+  message: 'DATABASE_URL is not configured.',
+  schema: {
+    initialised: false,
+    checkedTable: 'securities',
+    message: 'No database is configured, so no schema was checked.',
+    hint: null as string | null
+  }
+};
 
 vi.mock('../../src/server/db/client.js', () => ({
   databaseHealth: vi.fn(async () => database),
@@ -32,6 +42,9 @@ afterEach(() => {
   database.configured = false;
   database.reachable = false;
   database.message = 'DATABASE_URL is not configured.';
+  database.schema.initialised = false;
+  database.schema.hint = null;
+  database.schema.message = 'No database is configured, so no schema was checked.';
   snapshot = { latestObservationEventAt: null };
 });
 
@@ -62,9 +75,29 @@ describe('readiness', () => {
     database.configured = true;
     database.reachable = false;
     database.message = 'Database connection failed; details are intentionally not exposed.';
+    database.schema.hint = 'PostgreSQL is not accepting connections.';
     const report = await readinessReport(new ProviderRegistry());
     expect(report.status).toBe('not_ready');
     expect(report.checks.database.ok).toBe(false);
+    expect(report.checks.database.schemaInitialised).toBe(false);
+  });
+
+  it('is not ready when the database is reachable but has never been migrated', async () => {
+    database.configured = true;
+    database.reachable = true;
+    database.message = 'PostgreSQL is reachable, but the application schema has not been created.';
+    database.schema.initialised = false;
+    database.schema.message = 'Table "securities" is missing: no migration has been applied to this database.';
+    database.schema.hint = 'Run `npm run db:migrate` against this DATABASE_URL.';
+    const report = await readinessReport(new ProviderRegistry());
+    expect(report.status).toBe('not_ready');
+    expect(report.checks.database).toMatchObject({
+      ok: false,
+      configured: true,
+      schemaInitialised: false,
+      hint: 'Run `npm run db:migrate` against this DATABASE_URL.'
+    });
+    expect(report.checks.database.detail).toContain('Table "securities" is missing');
   });
 
   it('reports fresh and stale stored data distinctly', async () => {

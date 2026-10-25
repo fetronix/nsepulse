@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from './schema.js';
 import { config } from '../config.js';
+import { classifyDatabaseError } from './errors.js';
 
 let pool: Pool | null = null;
 let database: NodePgDatabase<typeof schema> | null = null;
@@ -19,22 +20,89 @@ export function getDatabase(): NodePgDatabase<typeof schema> | null {
   }
   return database;
 }
-export async function databaseHealth(): Promise<{ configured: boolean; reachable: boolean; message: string }> {
+export interface DatabaseHealth {
+  configured: boolean;
+  reachable: boolean;
+  message: string;
+  /**
+   * Whether the application tables exist. `SELECT 1` succeeds against an empty database, so
+   * reachability alone is not enough: without this check a never-migrated database reports
+   * "healthy" while every data route fails.
+   */
+  schema: {
+    initialised: boolean;
+    checkedTable: string;
+    message: string;
+    hint: string | null;
+  };
+}
+
+const SENTINEL_TABLE = 'securities';
+
+export async function databaseHealth(): Promise<DatabaseHealth> {
   if (!config.DATABASE_URL)
     return {
       configured: false,
       reachable: false,
-      message: 'DATABASE_URL is not configured; persistent market data is unavailable.'
+      message: 'DATABASE_URL is not configured; persistent market data is unavailable.',
+      schema: {
+        initialised: false,
+        checkedTable: SENTINEL_TABLE,
+        message: 'No database is configured, so no schema was checked.',
+        hint: null
+      }
     };
   try {
     getDatabase();
     await pool!.query('SELECT 1');
-    return { configured: true, reachable: true, message: 'PostgreSQL connection is healthy.' };
-  } catch {
+  } catch (error) {
+    const described = classifyDatabaseError(error);
     return {
       configured: true,
       reachable: false,
-      message: 'Database connection failed; details are intentionally not exposed.'
+      message:
+        described.kind === 'AUTH'
+          ? 'PostgreSQL rejected the configured credentials; the value is intentionally not exposed.'
+          : 'Database connection failed; details are intentionally not exposed.',
+      schema: {
+        initialised: false,
+        checkedTable: SENTINEL_TABLE,
+        message: 'Schema could not be checked because the connection failed.',
+        hint: described.hint
+      }
+    };
+  }
+
+  try {
+    const result = await pool!.query('SELECT to_regclass($1) IS NOT NULL AS present', [`public.${SENTINEL_TABLE}`]);
+    const present = Boolean(result.rows[0]?.present);
+    return {
+      configured: true,
+      reachable: true,
+      message: present
+        ? 'PostgreSQL connection is healthy.'
+        : 'PostgreSQL is reachable, but the application schema has not been created.',
+      schema: {
+        initialised: present,
+        checkedTable: SENTINEL_TABLE,
+        message: present
+          ? `Table "${SENTINEL_TABLE}" is present, so migrations have been applied.`
+          : `Table "${SENTINEL_TABLE}" is missing: no migration has been applied to this database.`,
+        hint: present ? null : 'Run `npm run db:migrate` against this DATABASE_URL.'
+      }
+    };
+  } catch (error) {
+    const described = classifyDatabaseError(error);
+    return {
+      configured: true,
+      reachable: true,
+      message: 'PostgreSQL connection is healthy.',
+      schema: {
+        initialised: false,
+        checkedTable: SENTINEL_TABLE,
+        message: `Schema could not be verified: ${described.message}`,
+        hint: described.hint
+      }
     };
   }
 }

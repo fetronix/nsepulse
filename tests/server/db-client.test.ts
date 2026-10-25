@@ -35,7 +35,13 @@ describe('database client without configuration', () => {
     expect(health).toEqual({
       configured: false,
       reachable: false,
-      message: 'DATABASE_URL is not configured; persistent market data is unavailable.'
+      message: 'DATABASE_URL is not configured; persistent market data is unavailable.',
+      schema: {
+        initialised: false,
+        checkedTable: 'securities',
+        message: 'No database is configured, so no schema was checked.',
+        hint: null
+      }
     });
   });
 
@@ -56,6 +62,8 @@ describe('database client with configuration', () => {
     expect(health.configured).toBe(true);
     expect(health.reachable).toBe(false);
     expect(health.message).toBe('Database connection failed; details are intentionally not exposed.');
+    expect(health.schema.initialised).toBe(false);
+    expect(health.schema.hint).toMatch(/PostgreSQL is not accepting connections/);
     expect(JSON.stringify(health)).not.toContain('secret');
     await client.closeDatabase();
     // A closed client is re-created lazily on the next request rather than left broken.

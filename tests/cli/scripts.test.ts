@@ -32,6 +32,16 @@ describe('db:check script', () => {
     expect(result.stdout).toContain('"configured":false');
     expect(result.stdout).toContain('DATABASE_URL is not configured');
   });
+
+  it('reports an unreachable server with exit code 2 and no credentials', async () => {
+    const result = await runScript('src/server/db/check.ts', [], {
+      DATABASE_URL: 'postgres://user:sup3rsecret@127.0.0.1:1/never_there'
+    });
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain('"reachable":false');
+    expect(result.stderr).toContain('not reachable');
+    expect(`${result.stdout}${result.stderr}`).not.toContain('sup3rsecret');
+  });
 });
 
 describe('db:migrate script', () => {

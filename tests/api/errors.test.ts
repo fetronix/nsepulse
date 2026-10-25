@@ -38,7 +38,9 @@ afterAll(async () => {
 describe('generic error handling', () => {
   it('returns a safe 500 without leaking internal details', async () => {
     const response = await request(app).get('/api/v1/market/overview').expect(500);
-    expect(response.body).toEqual({ error: 'Internal server error' });
+    expect(response.body).toMatchObject({ error: 'Internal server error' });
+    // A correlation id is echoed so the JSON response can be matched to the server log line.
+    expect(response.body.correlationId).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.stringify(response.body)).not.toContain('postgres://');
     expect(JSON.stringify(response.body)).not.toContain('database exploded');
   });
@@ -51,7 +53,7 @@ describe('generic error handling', () => {
       '/api/v1/data-sources'
     ]) {
       const response = await request(app).get(path).expect(500);
-      expect(response.body).toEqual({ error: 'Internal server error' });
+      expect(response.body).toMatchObject({ error: 'Internal server error' });
     }
   });
 });

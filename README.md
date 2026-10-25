@@ -173,9 +173,24 @@ per-source freshness and an empty-state explanation whenever data is unavailable
 ```bash
 docker compose up -d db     # disposable local PostgreSQL bound to 127.0.0.1:5432
 npm run db:migrate          # apply versioned SQL migrations from drizzle/generated
-npm run db:check            # connectivity and migration sanity check
+npm run db:check            # connectivity AND schema check (see exit codes below)
 npm run db:generate         # author a new migration after editing the Drizzle schema
 ```
+
+`npm run db:check` verifies more than connectivity: a reachable database with no migrations
+applied is reported as a failure, because every data route would fail against it.
+
+| Exit | Meaning                                                   | Fix                                           |
+| ---- | --------------------------------------------------------- | --------------------------------------------- |
+| `0`  | Reachable and initialised                                 | —                                             |
+| `1`  | `DATABASE_URL` missing, or reachable but **not migrated** | set `DATABASE_URL`, then `npm run db:migrate` |
+| `2`  | Configured but unreachable                                | start PostgreSQL, check host/port/credentials |
+
+A data route answered with **503** (instead of 500) means the same thing: the API is running,
+the storage is not usable. The response body carries `detail` and a `hint`, and
+`GET /api/v1/health/ready` reports `checks.database.schemaInitialised: false`. Log lines
+`database_request_failed` include the driver `kind`, SQLSTATE `code` and the offending object,
+so a missing table is never reported as an unexplained "Internal server error".
 
 Migrations are additive, versioned and reviewed before rollout; take a backup first in any
 non-disposable environment. Reset the local database with:

@@ -15,7 +15,13 @@ export interface ReadinessReport {
   timestamp: string;
   checks: {
     process: { ok: boolean; detail: string };
-    database: { ok: boolean; configured: boolean; detail: string };
+    database: {
+      ok: boolean;
+      configured: boolean;
+      schemaInitialised: boolean | null;
+      detail: string;
+      hint: string | null;
+    };
     provider: { ok: boolean; state: string; liveQuoteAdapterEnabled: boolean; detail: string };
     dataFreshness: { status: 'OK' | 'STALE' | 'NO_DATA' | 'UNKNOWN'; latestObservationAt: string | null };
   };
@@ -59,15 +65,25 @@ export async function readinessReport(providers: ProviderRegistry, now = new Dat
     .then((snapshot) => snapshot.latestObservationEventAt)
     .catch(() => null);
 
-  const databaseOk = database.configured ? database.reachable : true;
+  const databaseOk = database.configured ? database.reachable && database.schema.initialised : true;
   const status: ReadinessReport['status'] = !databaseOk ? 'not_ready' : primary ? 'ready' : 'degraded';
+  const databaseDetail =
+    database.reachable && !database.schema.initialised
+      ? `${database.message} ${database.schema.message}`
+      : database.message;
 
   return {
     status,
     timestamp: now.toISOString(),
     checks: {
       process: { ok: true, detail: 'HTTP server is accepting requests.' },
-      database: { ok: databaseOk, configured: database.configured, detail: database.message },
+      database: {
+        ok: databaseOk,
+        configured: database.configured,
+        schemaInitialised: database.configured ? database.schema.initialised : null,
+        detail: databaseDetail,
+        hint: database.schema.hint
+      },
       provider: {
         ok: Boolean(primary),
         state: primary?.state ?? 'MISSING',

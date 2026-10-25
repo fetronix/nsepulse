@@ -8,6 +8,7 @@ import {
   counts
 } from '../db/repository.js';
 import { isStale } from '../market/quality.js';
+import { classifyDatabaseError, isSchemaMissing } from '../db/errors.js';
 import { atr, ema, historicalVolatility, macd, rsi, sma } from '../market/indicators.js';
 import { DEMO_SOURCE_LABEL, demoFixtures, findDemoFixture } from '../providers/demo-fixtures.js';
 import { ProviderRuntime } from '../providers/runtime.js';
@@ -133,7 +134,24 @@ export class MarketService {
   }
 
   async overview() {
-    const stats = await counts();
+    // A never-migrated database must not turn the dashboard into a bare 500. Counts become
+    // null and the response says the schema is missing, which is the same honest shape the
+    // API already uses when no database is configured.
+    let databaseState: {
+      state: 'INITIALISED' | 'SCHEMA_MISSING' | 'UNAVAILABLE';
+      message: string;
+      hint: string | null;
+    } = {
+      state: 'INITIALISED',
+      message: 'Application tables are present.',
+      hint: null
+    };
+    const stats = await counts().catch((error: unknown) => {
+      if (!isSchemaMissing(error)) throw error;
+      const described = classifyDatabaseError(error);
+      databaseState = { state: 'SCHEMA_MISSING', message: described.message, hint: described.hint };
+      return { securities: null, observations: null } as Awaited<ReturnType<typeof counts>>;
+    });
     const statuses = await this.providers.statuses();
     const liveQuoteAdapterEnabled = statuses.some((status) => status.state === 'READY' && status.configured);
     return {
@@ -148,6 +166,7 @@ export class MarketService {
       upcomingEvents: [],
       dataFreshness: { latestObservationAt: null, status: 'NO_DATA' },
       counts: stats,
+      database: databaseState,
       providerStatuses: statuses,
       dataPolicy: {
         liveQuoteAdapterEnabled,

@@ -8,6 +8,7 @@ import { pinoHttp } from 'pino-http';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { databaseHealth } from '../db/client.js';
+import { classifyDatabaseError, httpStatusForDatabaseError } from '../db/errors.js';
 import { logger } from '../logging/logger.js';
 import { livenessReport, readinessReport } from '../services/health.js';
 import { createProviderSelection } from '../providers/factory.js';
@@ -252,18 +253,58 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }));
+  /**
+   * Central error mapping.
+   *
+   * A database failure is a storage problem, not an application bug, and the operator can fix
+   * it — so it is answered with 503 and a hint (usually "run the migrations") instead of a bare
+   * 500. The driver's own message is logged from the `cause` chain, because Drizzle's wrapper
+   * says only "Failed query: …" and carries no stack.
+   */
   const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
+    const databaseError = classifyDatabaseError(error);
+    const isDatabaseFailure = databaseError.kind !== 'UNKNOWN';
+    const route = req.baseUrl + (req.route?.path ?? '');
+
     logger.error(
       {
         module: 'api',
         correlationId: res.locals.requestId,
         method: req.method,
-        route: req.baseUrl + (req.route?.path ?? ''),
+        route,
+        ...(isDatabaseFailure
+          ? {
+              databaseError: {
+                kind: databaseError.kind,
+                code: databaseError.code,
+                message: databaseError.message,
+                object: databaseError.object
+              }
+            }
+          : {}),
         err: error instanceof Error ? { name: error.name, message: error.message } : { message: 'unknown error' }
       },
-      'unhandled_request_error'
+      isDatabaseFailure ? 'database_request_failed' : 'unhandled_request_error'
     );
-    res.status(500).json({ error: 'Internal server error' });
+
+    if (isDatabaseFailure) {
+      res.status(httpStatusForDatabaseError(databaseError.kind)).json({
+        error:
+          databaseError.kind === 'SCHEMA_MISSING'
+            ? 'The database schema is not initialised'
+            : databaseError.kind === 'AUTH'
+              ? 'The database rejected the configured credentials'
+              : databaseError.kind === 'PERMISSION'
+                ? 'The database user lacks permission for this operation'
+                : 'The database is unavailable',
+        detail: databaseError.message,
+        hint: databaseError.hint,
+        correlationId: res.locals.requestId
+      });
+      return;
+    }
+
+    res.status(500).json({ error: 'Internal server error', correlationId: res.locals.requestId });
   };
   app.use(errorHandler);
   return app;
