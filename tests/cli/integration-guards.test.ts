@@ -88,8 +88,8 @@ describe('integration report assertion', () => {
 
   it('passes when the report shows passed tests', async () => {
     const path = writeReport('passed.json', {
-      numTotalTests: 11,
-      numPassedTests: 11,
+      numTotalTests: 14,
+      numPassedTests: 14,
       numFailedTests: 0,
       numPendingTests: 0
     });
@@ -100,10 +100,10 @@ describe('integration report assertion', () => {
 
   it('fails when every test was skipped, even though vitest exits 0', async () => {
     const path = writeReport('skipped.json', {
-      numTotalTests: 11,
+      numTotalTests: 14,
       numPassedTests: 0,
       numFailedTests: 0,
-      numPendingTests: 11
+      numPendingTests: 14
     });
     const result = await assertReport(path);
     expect(result.code).toBe(1);
@@ -119,7 +119,7 @@ describe('integration report assertion', () => {
     });
     const result = await assertReport(path);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('expected at least 11');
+    expect(result.stderr).toContain('expected at least 14');
   });
 
   it('fails when the report records a failure', async () => {

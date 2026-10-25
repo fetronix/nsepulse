@@ -7,12 +7,12 @@
  * asserts a minimum number of *passed* tests, which makes "skipped everything" a failure.
  *
  * Usage: node scripts/assert-integration-ran.mjs [report.json] [minPassed]
- * Defaults: test-results/integration.json, 11
+ * Defaults: test-results/integration.json, 14
  */
 import { readFileSync } from 'node:fs';
 
 const reportPath = process.argv[2] ?? 'test-results/integration.json';
-const minPassed = Number(process.argv[3] ?? 11);
+const minPassed = Number(process.argv[3] ?? 14);
 
 let report;
 try {
