@@ -40,9 +40,34 @@ function accessDisclosure(demo: boolean, entitlement: EntitlementKind, level: Da
   return 'No real-time, delayed or end-of-day access has been granted. The application shows no market prices and infers no data mode from credentials.';
 }
 
-function credentials(settings: ProviderSettings, demo: boolean): CredentialView[] {
+function credentials(settings: ProviderSettings, demo: boolean, mansaActive: boolean): CredentialView[] {
   const demoNote = demo ? 'Demo mode does not use this credential. ' : '';
+  const mansaNote = mansaActive
+    ? 'This credential is used by the active Mansa adapter. '
+    : 'Tracked so the configuration page reflects every provider the application can build. ';
   return [
+    {
+      key: 'MANSA_API_KEY',
+      label: 'Mansa API key',
+      required: mansaActive,
+      secret: true,
+      state: settings.mansaApiKeyConfigured ? 'CONFIGURED' : 'MISSING',
+      blockingForActiveAdapter: mansaActive && !settings.mansaApiKeyConfigured,
+      note: settings.mansaApiKeyConfigured
+        ? `${mansaNote}Present server-side; the value is never returned by the API or rendered here.`
+        : `${mansaNote}No key configured. Set MANSA_API_KEY in the server environment; a key is not an NSE redistribution licence.`
+    },
+    {
+      key: 'MANSA_API_BASE_URL',
+      label: 'Mansa API base URL',
+      required: mansaActive,
+      secret: false,
+      state: settings.mansaBaseUrl ? 'CONFIGURED' : 'MISSING',
+      blockingForActiveAdapter: mansaActive && !settings.mansaBaseUrl,
+      note: settings.mansaBaseUrl
+        ? 'A base URL is configured server-side and is not echoed here. The adapter refuses any non-HTTPS origin.'
+        : 'No base URL configured. The documented default is https://mansaapi.com and must remain HTTPS.'
+    },
     {
       key: 'NSE_VENDOR_API_BASE_URL',
       label: 'Vendor API base URL',
@@ -194,7 +219,7 @@ export class ProviderConfigurationService {
         liveQuoteAdapterEnabled,
         enforcedDefaultProvider: 'none'
       },
-      credentials: credentials(selection.settings, demo),
+      credentials: credentials(selection.settings, demo, selection.requestedProvider === 'mansa'),
       coverage: capabilities.coverage,
       access: {
         level: capabilities.accessLevel,

@@ -39,7 +39,7 @@ const DEMO_PERMISSION = {
 };
 
 type Provenance = {
-  kind: 'DEMO_FIXTURE' | 'STORED_OBSERVATION' | 'UNAVAILABLE';
+  kind: 'DEMO_FIXTURE' | 'STORED_OBSERVATION' | 'PROVIDER_QUOTE' | 'UNAVAILABLE';
   label: string;
   liveQuoteAdapterEnabled: boolean;
   dataMode: DataMode;
@@ -56,6 +56,27 @@ function demoProvenance(): Provenance {
     source: DEMO_SOURCE_LABEL,
     freshnessNote:
       'Fixture values carry no market event timestamp and must never be described as live, delayed or end-of-day.'
+  };
+}
+
+export const PROVIDER_QUOTE_NOTICE =
+  'Provider snapshot — delayed market data, not real-time. Mansa documents a 30-minute freshness target during market hours.';
+
+function providerProvenance(
+  source: string,
+  dataMode: DataMode,
+  stale: boolean,
+  marketEventAt: string | null
+): Provenance {
+  return {
+    kind: 'PROVIDER_QUOTE',
+    label: 'Live adapter response from the configured market-data provider',
+    liveQuoteAdapterEnabled: true,
+    dataMode,
+    source,
+    freshnessNote: marketEventAt
+      ? `Provider observation time ${marketEventAt}. Data mode ${dataMode} is derived from provider metadata, never assumed to be real-time${stale ? '; the snapshot is stale' : ''}.`
+      : 'The provider supplied no observation timestamp, so freshness cannot be asserted.'
   };
 }
 
@@ -194,6 +215,81 @@ export class MarketService {
       };
     }
 
+    // Live adapter first. A provider that is enabled but fails must not be papered over with
+    // stored rows: the stored path below is labelled as stored and says so in the warnings.
+    if (provider.live) {
+      const observation = await provider.getLatestQuote({ symbol });
+      if (observation) {
+        this.runtime.recordRetrievalSuccess(provider.id);
+        const security = await findSecurityBySymbol(symbol);
+        const stale = isStale(observation.marketEventAt);
+        return {
+          security: security
+            ? {
+                id: security.id,
+                symbol: security.symbol,
+                name: security.name,
+                exchange: security.exchange,
+                instrumentType: security.instrumentType,
+                listingStatus: security.listingStatus,
+                sector: security.sector
+              }
+            : {
+                id: observation.securityId,
+                symbol: observation.symbol,
+                name: observation.symbol,
+                exchange: 'NSE',
+                instrumentType: 'EQUITY',
+                listingStatus: 'UNKNOWN',
+                sector: null
+              },
+          observation: { ...observation, stale },
+          reason: null,
+          provenance: providerProvenance(observation.source, observation.dataMode, stale, observation.marketEventAt),
+          warnings: [
+            PROVIDER_QUOTE_NOTICE,
+            ...(stale ? ['The provider snapshot is older than 24 hours; treat it as historical.'] : []),
+            ...(security
+              ? []
+              : ['This symbol is not in the configured security master; identity is taken from the provider record.'])
+          ]
+        };
+      }
+      const failure = provider.describeLastFailure?.() ?? 'The provider returned no quote for this symbol.';
+      this.runtime.recordRetrievalFailure(provider.id, failure);
+      const security = await findSecurityBySymbol(symbol);
+      const row = security ? await latestObservation(security.id) : null;
+      if (!row)
+        return {
+          security,
+          observation: null,
+          reason: `No verified quote is available: the configured provider did not supply one (${failure}).`,
+          provenance: null,
+          warnings: [PROVIDER_QUOTE_NOTICE]
+        };
+      const fallbackStale = isStale(row.marketEventAt?.toISOString() ?? null);
+      return {
+        security,
+        observation: {
+          ...row,
+          price: Number(row.price),
+          open: row.open ? Number(row.open) : null,
+          high: row.high ? Number(row.high) : null,
+          low: row.low ? Number(row.low) : null,
+          previousClose: row.previousClose ? Number(row.previousClose) : null,
+          turnover: row.turnover ? Number(row.turnover) : null,
+          stale: fallbackStale,
+          marketEventAt: row.marketEventAt?.toISOString() ?? null
+        },
+        reason: null,
+        provenance: storedProvenance(row.source, row.dataMode, fallbackStale),
+        warnings: [
+          `The provider did not answer (${failure}). The quote shown is a stored observation, not a current provider quote.`,
+          ...(fallbackStale ? ['The stored observation is stale.'] : [])
+        ]
+      };
+    }
+
     const security = await findSecurityBySymbol(symbol);
     if (!security)
       return {
@@ -231,6 +327,45 @@ export class MarketService {
       reason: null,
       provenance: storedProvenance(row.source, row.dataMode, stale),
       warnings: stale ? ['The most recent stored observation is stale; freshness is not guaranteed.'] : []
+    };
+  }
+
+  /**
+   * Gainers/losers from the configured provider.
+   *
+   * Returns an explicit unavailable result when no provider documents such an endpoint, so
+   * the Telegram bot never renders an empty list as "no movers today".
+   */
+  async movers(type: 'gainers' | 'losers', limit = 5) {
+    const provider = this.providers.primary;
+    if (!provider.getMovers)
+      return {
+        available: false,
+        type,
+        items: [],
+        reason:
+          'The active provider does not document a gainers/losers endpoint, so no movers are shown. No list is inferred from stored data.',
+        retrievedAt: null,
+        warnings: [] as string[]
+      };
+    const snapshot = await provider.getMovers({ type, limit });
+    if (!snapshot)
+      return {
+        available: false,
+        type,
+        items: [],
+        reason: `No verified movers are available: ${provider.describeLastFailure?.() ?? 'the provider did not answer.'}`,
+        retrievedAt: null,
+        warnings: [PROVIDER_QUOTE_NOTICE]
+      };
+    this.runtime.recordRetrievalSuccess(provider.id);
+    return {
+      available: true,
+      type,
+      items: snapshot.items,
+      reason: snapshot.items.length ? null : 'The provider returned no movers for this exchange.',
+      retrievedAt: snapshot.retrievedAt,
+      warnings: [PROVIDER_QUOTE_NOTICE, snapshot.freshnessNote]
     };
   }
 

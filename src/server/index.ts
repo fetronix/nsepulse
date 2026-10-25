@@ -1,6 +1,6 @@
 import { createApp } from './api/app.js';
 import { config } from './config.js';
-import { closeDatabase } from './db/client.js';
+import { closeDatabase, tryAcquireProcessLock } from './db/client.js';
 import { startScheduler } from './jobs/runner.js';
 import { logger } from './logging/logger.js';
 import { startTelegramBot } from './telegram/bot.js';
@@ -21,18 +21,47 @@ const server = app.listen(config.PORT, config.HOST, () => {
 });
 
 let bot: Awaited<ReturnType<typeof startTelegramBot>> | null = null;
-if (config.TELEGRAM_BOT_TOKEN) {
-  void startTelegramBot(config.TELEGRAM_BOT_TOKEN)
-    .then((started) => {
-      bot = started;
-    })
-    .catch((error: unknown) =>
-      logger.error(
-        { module: 'telegram', errorClass: error instanceof Error ? error.name : 'UnknownError' },
-        'telegram_start_failed'
-      )
+let releaseBotLock: (() => Promise<void>) | null = null;
+
+/**
+ * Telegram polling is started only by the process that owns the advisory lock.
+ *
+ * Without this, a second replica (or a restart that overlaps the previous process) opens a
+ * competing `getUpdates` loop and every command is answered twice. When no database is
+ * configured there is no shared lock to take, so the in-process guard in startTelegramBot is
+ * the only protection and that limitation is logged.
+ */
+async function startTelegramOnce(): Promise<void> {
+  if (!config.TELEGRAM_BOT_TOKEN) return;
+  try {
+    if (config.DATABASE_URL) {
+      releaseBotLock = await tryAcquireProcessLock(731_502_611);
+      if (!releaseBotLock) {
+        logger.warn(
+          { module: 'telegram', reason: 'another instance holds the polling lock' },
+          'telegram_polling_skipped'
+        );
+        return;
+      }
+    } else {
+      logger.warn(
+        { module: 'telegram', reason: 'DATABASE_URL is not configured' },
+        'telegram_polling_lock_unavailable'
+      );
+    }
+    bot = await startTelegramBot(config.TELEGRAM_BOT_TOKEN);
+  } catch (error) {
+    logger.error(
+      { module: 'telegram', errorClass: error instanceof Error ? error.name : 'UnknownError' },
+      'telegram_start_failed'
     );
+    if (releaseBotLock) {
+      await releaseBotLock().catch(() => undefined);
+      releaseBotLock = null;
+    }
+  }
 }
+void startTelegramOnce();
 
 let shuttingDown = false;
 
@@ -66,6 +95,14 @@ async function shutdown(signal: string): Promise<void> {
           { module: 'telegram', errorClass: error instanceof Error ? error.name : 'UnknownError' },
           'telegram_stop_failed'
         );
+      }
+    }
+    if (releaseBotLock) {
+      try {
+        await releaseBotLock();
+        releaseBotLock = null;
+      } catch {
+        logger.warn({ module: 'telegram' }, 'telegram_polling_lock_release_failed');
       }
     }
     await closeDatabase();

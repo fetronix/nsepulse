@@ -54,6 +54,39 @@ export async function withAdvisoryLock<T>(key: number, work: () => Promise<T>): 
     connection.release();
   }
 }
+/**
+ * Take a session-level advisory lock and hold it until the returned function is called.
+ *
+ * Used to guarantee a single long-polling process across restarts and replicas: a second
+ * instance gets `null` instead of opening a competing Telegram `getUpdates` loop. The lock
+ * is owned by one dedicated pooled connection, which is released with it.
+ */
+export async function tryAcquireProcessLock(key: number): Promise<(() => Promise<void>) | null> {
+  getDatabase();
+  if (!pool) return null;
+  const connection = await pool.connect();
+  try {
+    const result = await connection.query('SELECT pg_try_advisory_lock($1) AS locked', [key]);
+    if (!result.rows[0]?.locked) {
+      connection.release();
+      return null;
+    }
+  } catch (error) {
+    connection.release();
+    throw error;
+  }
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    try {
+      await connection.query('SELECT pg_advisory_unlock($1)', [key]);
+    } finally {
+      connection.release();
+    }
+  };
+}
+
 export async function closeDatabase(): Promise<void> {
   await pool?.end();
   pool = null;
