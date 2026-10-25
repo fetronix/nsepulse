@@ -1,0 +1,60 @@
+openapi: 3.1.0
+info:
+  title: NSE Pulse API
+  version: 1.0.0
+  description: Kenyan market research API; empty arrays and missing values are explicit when data is not configured.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Application, database and provider health
+      responses:
+        '200': { description: Health status; provider and database status are independent }
+  /providers:
+    get:
+      summary: Provider connection/configuration status
+      responses:
+        '200': { description: No secrets are returned }
+  /market/overview:
+    get:
+      summary: NSE overview and freshness
+      responses:
+        '200': { description: Empty indices and breadth mean no configured observations, not zero activity }
+  /securities:
+    get:
+      summary: Search the imported security master
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Database records only }
+        '400': { description: Invalid query parameters }
+  /quotes/{symbol}:
+    get:
+      summary: Latest stored observation and provenance
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9.-]{1,24}$' } }
+      responses:
+        '200': { description: Security and quote, or a quote-unavailable reason }
+        '400': { description: Invalid symbol }
+        '404': { description: Security not found }
+  /history/{symbol}:
+    get:
+      summary: Stored historical prices
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: Stored history or explicit empty state }
+        '400': { description: Invalid range }
+  /technicals/{symbol}:
+    get:
+      summary: Technical indicators calculated from stored observations
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Indicator values with period, calculation and data requirements }
+        '404': { description: Security not found }

@@ -1,0 +1,58 @@
+{
+  "name": "nse-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kenyan market research platform with explicit data provenance and freshness",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch src/server/index.ts",
+    "dev:web": "vite --host 0.0.0.0",
+    "build": "npm run typecheck && vite build",
+    "build:api": "tsc -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "start": "node dist/server/index.js",
+    "start:bot": "node dist/server/telegram/standalone.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/server/db/migrate.ts",
+    "db:check": "tsx src/server/db/check.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^18.0.9",
+    "drizzle-orm": "^0.45.4",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "grammy": "^1.35.0",
+    "helmet": "^8.0.0",
+    "node-cron": "^4.6.0",
+    "pg": "^8.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/supertest": "^6.0.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "concurrently": "^9.1.2",
+    "drizzle-kit": "^0.31.11",
+    "supertest": "^7.0.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "esbuild": "^0.25.12"
+  }
+}
