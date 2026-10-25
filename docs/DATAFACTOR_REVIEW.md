@@ -117,6 +117,27 @@ Compliance notes for a commercial distribution:
 | Logs with payloads                | No       | Logger redacts credential-shaped keys and logs paths without query strings or bodies     |
 | Third-party copyrighted documents | No       | Announcements are referenced by URL only when a permitted source exists; none are stored |
 
+## 5a. Verification log for this pass (2026-10-25)
+
+Added so a reviewer can see which statements below rest on executed commands. Environment:
+Linux sandbox, Node 22.22.3, PostgreSQL 16.14 (embedded binaries), `psql`/`pg_dump`/`pg_restore`
+16.2. **No Docker runtime was available**, so the container image remains unverified and nothing
+in this document depends on it.
+
+| Claim in this document                           | How it was checked                                                                                                                        | Result                              |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| No market data is shipped                        | Search of the tree for data files and dumps; no `.csv`/`.dump`/seed data present; demo fixtures are synthetic constants                   | Confirmed                           |
+| No credentials in the repository                 | `npm run check:secrets` over all tracked files (99 files scanned)                                                                         | Passed                              |
+| No production database contents                  | Backup/restore drill used disposable local databases created for the purpose and seeded with three synthetic `DRILL*` securities          | Confirmed                           |
+| Dependency licence mix (§3)                      | `npx license-checker --production --json` (122 packages) and `--json` (423 packages)                                                      | Unchanged from the statement below  |
+| No copyleft in the runtime dependency set        | Production tree: MIT 111, ISC 6, BSD-2 2, BSD-3 1, Apache-2.0 1, project itself unlicensed                                                | Confirmed                           |
+| No repository licence                            | `ls LICENSE` fails; `package.json` has no `license` field                                                                                 | Confirmed; not changed in this pass |
+| Author history preserved                         | `git log` retains the original `fetronix` commit `85207b7` beneath the agent commits; no rebase, amend of others' commits, or force push  | Confirmed                           |
+| Historical/announcement data gated by permission | Live server with a real database returned `state: "PERMISSION_UNCONFIRMED"` for announcements and withheld history unless the flag is set | Confirmed at runtime                |
+
+Not verified and not claimed: that any dataset is licensed for redistribution, that the
+application is fit for a commercial deployment, or that the container image builds.
+
 ## 6. What a reviewer can verify without external access
 
 ```bash
@@ -125,7 +146,16 @@ ls LICENSE || echo "no licence file"        # licensing position
 npx license-checker --production --summary  # runtime licence mix
 npm run check:secrets                       # no committed credentials
 grep -rIl "MARKET_DATA_PROVIDER" src docs   # provider gate locations
-npm run test:coverage                       # suite and thresholds
+npm run test:coverage                       # unit/API/client suite and thresholds
+npm run build:all                           # client + server artefacts
+npm run check:secrets                       # no committed credentials
+```
+
+Database-dependent checks need a disposable PostgreSQL (`docker compose --profile test up -d db-test`):
+
+```bash
+TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test \
+  npm run test:integration:verified         # fails if the suite only skipped
 ```
 
 ## 7. Limitations of this review

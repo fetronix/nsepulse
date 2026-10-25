@@ -42,7 +42,7 @@ Disposable integration-test database:
 
 ```bash
 docker compose --profile test up -d db-test
-TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration
+TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified
 ```
 
 Preview mode (`MARKET_DATA_PROVIDER=demo` + `ALLOW_DEMO_MARKET_DATA=true`) is refused when `NODE_ENV=production`, so the container cannot serve synthetic fixtures even if the variables are supplied.
@@ -51,11 +51,15 @@ Preview mode (`MARKET_DATA_PROVIDER=demo` + `ALLOW_DEMO_MARKET_DATA=true`) is re
 
 ```bash
 npm ci
-npm run build
-npm run build:api
+npm run build:all      # typecheck -> vite build -> server tsc; use this, not the pieces
 npm run db:migrate
 NODE_ENV=production npm start
 ```
+
+`npm run build` builds only the client and **empties `dist/`**, deleting a server build that
+was produced earlier. Always build both halves with `npm run build:all`, which encodes the only
+correct order (Vite first, server compilation second). `tests/cli/build-pipeline.test.ts` and
+the CI build job enforce this.
 
 Serve files in `dist/` with a static web host. Set `APP_ORIGIN` to the browser origin. The Vite development proxy is not part of the production server.
 
@@ -86,6 +90,26 @@ pg_dump --format=custom --no-owner --file="nse-pulse-$(date -u +%Y%m%dT%H%M%SZ).
 createdb nse_pulse_restore_test
 pg_restore --no-owner --dbname="$RESTORE_DATABASE_URL" nse-pulse-backup.dump
 ```
+
+### Drill actually executed (2026-10-25, PostgreSQL 16.14)
+
+Performed against disposable local databases, never a production one. Recorded so the procedure
+above is known to work rather than assumed:
+
+| Step                          | Command                                                                                      | Observed result                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Empty database                | `createdb nse_pulse_drill_test`                                                              | 0 tables in `public`                                                         |
+| Initialise schema             | `DATABASE_URL=… npm run db:migrate`                                                          | 31 tables, 67 indexes, 30 foreign keys, 1 `drizzle.__drizzle_migrations` row |
+| Idempotency                   | `npm run db:migrate` again                                                                   | success in 35 ms, still 31 tables and 1 journal row                          |
+| Seed disposable data          | `INSERT` of 3 securities, 3 observations, 3 historical rows                                  | 3/3/3 rows                                                                   |
+| Backup                        | `pg_dump -Fc`                                                                                | 70,232 bytes, 167 TOC entries, sha256 `e706420f…bfab3`                       |
+| Restore                       | `pg_restore --no-owner --no-privileges --exit-on-error` into `nse_pulse_drill_test_restored` | exit 0                                                                       |
+| Integrity                     | per-table `count(*)` and md5 of ordered row text for all 31 tables                           | 0 mismatches; indexes 67/67 and foreign keys 30/30 identical                 |
+| Restored DB is a valid target | `npm run db:migrate` against the restored database                                           | no-op, journal still 1 row                                                   |
+
+The dump/restore tools were PostgreSQL 16.2 clients against a 16.14 server. A `pg_dump` older
+than the server refuses to run (a 14.x client aborted with "server version mismatch"), so match
+major versions in real operations.
 
 Schedule regular backups, keep an off-host copy, restrict access, encrypt at rest/in transit, and perform a restore drill before relying on backups. Confirm stored market data can be retained under the applicable license. No automated backup service is bundled.
 

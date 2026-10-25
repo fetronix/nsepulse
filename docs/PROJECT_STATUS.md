@@ -79,7 +79,7 @@ Recorded from a fresh clone at the commit containing this document.
 - `npm run typecheck` — pass (app and server configs).
 - `npm run lint` — pass; `npm run format:check` — pass.
 - `npm run check:secrets` — pass (and verified to fail on a deliberately introduced token).
-- `npm run test:coverage` — pass: 24 test files, 196 tests; statements 88.24 %, branches
+- `npm run test:coverage` — pass: 27 test files, 216 tests; statements 88.24 %, branches
   80.74 %, functions 89.95 %, lines 88.31 % against enforced floors of 70/60/70/70.
 - `npm run build` and `npm run build:api` — pass; `dist/server/index.js` produced.
 - `NODE_ENV=production node dist/server/index.js` — `/api/v1/health/live` 200,
@@ -88,10 +88,13 @@ Recorded from a fresh clone at the commit containing this document.
   logged `shutdown_started`/`shutdown_complete`.
 - `npm audit --audit-level=high` — pass, `found 0 vulnerabilities` at this commit. This is a
   point-in-time result, not a permanent property.
-- `npm run test:integration` — skipped (7 tests) because no `TEST_DATABASE_URL` or PostgreSQL
-  server was available. **Integration tests have never executed successfully in this
-  environment.**
-- `docker build` / `docker compose up` — not run; no Docker daemon available.
+- `npm run test:integration:verified` — with a real PostgreSQL 16.14 and a disposable database:
+  `7 passed`, report assertion passed. Without a database the suite skips and the accompanying
+  assertion fails, so a skipped run can no longer be mistaken for a passing one.
+- `docker build` / `docker compose up` — **not run**; no Docker daemon, socket or registry access
+  was available in this environment, and no runtime can be installed. The compose file was
+  validated against the official Compose Specification schema and both image stages were simulated
+  file-for-file, but the image itself remains unbuilt and must be verified where Docker exists.
 - Provider tests exercise the unconfigured adapter, the pending-vendor placeholder and demo
   fixtures only. No real-provider call was made, and no test asserts that live data exists.
 - Credential-redaction tests inject fake credential values through the environment and assert

@@ -241,10 +241,16 @@ Columns: `symbol,name,instrumentType,listingStatus` (optional `sector`). Importe
 ## 13. Testing and coverage
 
 ```bash
-npm test                 # unit + API + client tests (Vitest)
-npm run test:coverage    # same suite with coverage thresholds enforced
-npm run test:integration # requires TEST_DATABASE_URL — real PostgreSQL
+npm test                        # unit + API + client tests (Vitest)
+npm run test:coverage           # same suite with coverage thresholds enforced
+npm run test:integration        # requires TEST_DATABASE_URL — real PostgreSQL
+npm run test:integration:verified  # same, but fails if the suite only skipped
 ```
+
+`test:integration` exits 0 when every test skips, so it is not proof on its own. Use
+`test:integration:verified`, which asserts a minimum number of _passed_ tests from the JSON
+report; CI sets `REQUIRE_INTEGRATION_TESTS=true` so a missing database fails the job instead of
+skipping it.
 
 - Coverage thresholds (statements/lines/functions 70%, branches 60%) are enforced in
   `vitest.config.ts`; they are a floor, not a target. Current measured coverage is reported by
@@ -263,8 +269,14 @@ npm run typecheck     # tsc for app and server configs
 npm run lint          # ESLint flat config (TS + React, no blanket any)
 npm run format:check  # Prettier
 npm run check:secrets # repository secret scan
-npm run verify        # typecheck → lint → format → secret scan → coverage → build
+npm run build:all     # typecheck → vite build → server tsc (correct order, see below)
+npm run verify        # everything above, with coverage
 ```
+
+Build both halves with `npm run build:all`. `npm run build` builds only the client and **empties
+`dist/`**, deleting a server build produced earlier — which is why the container once shipped no
+server bundle. `tests/cli/build-pipeline.test.ts` and the CI build job assert the ordering and the
+artefacts.
 
 CI (`.github/workflows/ci.yml`) runs quality, test, build, integration (disposable PostgreSQL)
 and security jobs on every push and pull request, with pinned action versions, least-privilege
@@ -289,6 +301,14 @@ unprivileged `node` user, contains no `.env` or secrets, and declares a health c
 `/api/v1/health/live`. Migrations run only when `RUN_MIGRATIONS=true`. PostgreSQL is bound to
 loopback, never published publicly. Credentials in `docker-compose.yml` are obvious local
 placeholders and must be replaced anywhere else. Full reset: `docker compose down -v`.
+
+> **Verification status:** the image has **not** been built in this environment — no Docker
+> daemon, socket or registry access was available. What was verified instead: the compose file
+> validates against the official Compose Specification schema, the build-stage file set compiles,
+> and the runtime-stage file set (production dependencies only) applies migrations and serves
+> `/health/live` and `/health/ready` against real PostgreSQL. Build the image where Docker exists
+> before relying on it; see [`docs/ENGINEERING_READINESS.md`](docs/ENGINEERING_READINESS.md) §9
+> for the exact commands and the full list of what a simulation cannot prove.
 
 ## 16. Deployment and operations
 
