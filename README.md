@@ -148,6 +148,7 @@ than running with a half-valid configuration.
 | `ENABLE_SCHEDULER`                                          | `false`                 | Opt-in provider-health heartbeat, not an ingestion switch              |
 | `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT` | none                    | Supplied per import command; the importer refuses to run without both  |
 | `RUN_MIGRATIONS`                                            | unset                   | Container entrypoint only; applies migrations on start                 |
+| `MIGRATIONS_FOLDER`                                         | `./drizzle/generated`   | Directory `npm run db:migrate` reads; override when mounting elsewhere |
 
 Secrets belong in the server environment or a secret manager. Never in a `VITE_*` variable,
 which is compiled into the browser bundle.

@@ -117,26 +117,40 @@ Compliance notes for a commercial distribution:
 | Logs with payloads                | No       | Logger redacts credential-shaped keys and logs paths without query strings or bodies     |
 | Third-party copyrighted documents | No       | Announcements are referenced by URL only when a permitted source exists; none are stored |
 
-## 5a. Verification log for this pass (2026-10-25)
+## 5a. Verification log (2026-10-25, three passes)
 
 Added so a reviewer can see which statements below rest on executed commands. Environment:
 Linux sandbox, Node 22.22.3, PostgreSQL 16.14 (embedded binaries), `psql`/`pg_dump`/`pg_restore`
 16.2. **No Docker runtime was available**, so the container image remains unverified and nothing
 in this document depends on it.
 
-| Claim in this document                           | How it was checked                                                                                                                        | Result                              |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| No market data is shipped                        | Search of the tree for data files and dumps; no `.csv`/`.dump`/seed data present; demo fixtures are synthetic constants                   | Confirmed                           |
-| No credentials in the repository                 | `npm run check:secrets` over all tracked files (99 files scanned)                                                                         | Passed                              |
-| No production database contents                  | Backup/restore drill used disposable local databases created for the purpose and seeded with three synthetic `DRILL*` securities          | Confirmed                           |
-| Dependency licence mix (§3)                      | `npx license-checker --production --json` (122 packages) and `--json` (423 packages)                                                      | Unchanged from the statement below  |
-| No copyleft in the runtime dependency set        | Production tree: MIT 111, ISC 6, BSD-2 2, BSD-3 1, Apache-2.0 1, project itself unlicensed                                                | Confirmed                           |
-| No repository licence                            | `ls LICENSE` fails; `package.json` has no `license` field                                                                                 | Confirmed; not changed in this pass |
-| Author history preserved                         | `git log` retains the original `fetronix` commit `85207b7` beneath the agent commits; no rebase, amend of others' commits, or force push  | Confirmed                           |
-| Historical/announcement data gated by permission | Live server with a real database returned `state: "PERMISSION_UNCONFIRMED"` for announcements and withheld history unless the flag is set | Confirmed at runtime                |
+| Claim in this document                                               | How it was checked                                                                                                                               | Result                              |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
+| No market data is shipped                                            | Search of the tree for data files and dumps; no `.csv`/`.dump`/seed data present; demo fixtures are synthetic constants                          | Confirmed                           |
+| No credentials in the repository                                     | `npm run check:secrets` over all tracked files (100 files scanned)                                                                               | Passed                              |
+| No credentials, dumps or market data, re-checked after later commits | `npm run check:secrets` over 100 tracked files; the backup/restore drill used disposable databases seeded with synthetic `PASSC*` securities     | Confirmed (Pass C)                  |
+| Demo mode cannot be enabled by configuration alone in production     | `tests/server/config.test.ts` child-process cases; runtime smoke test with `MARKET_DATA_PROVIDER=none` reported `liveQuoteAdapterEnabled: false` | Confirmed                           |
+| No production database contents                                      | Backup/restore drill used disposable local databases created for the purpose and seeded with three synthetic `DRILL*` securities                 | Confirmed                           |
+| Dependency licence mix (§3)                                          | `npx license-checker --production --json` (122 packages) and `--json` (423 packages)                                                             | Unchanged from the statement below  |
+| No copyleft in the runtime dependency set                            | Production tree: MIT 111, ISC 6, BSD-2 2, BSD-3 1, Apache-2.0 1, project itself unlicensed                                                       | Confirmed                           |
+| No repository licence                                                | `ls LICENSE` fails; `package.json` has no `license` field                                                                                        | Confirmed; not changed in this pass |
+| Author history preserved                                             | `git log` retains the original `fetronix` commit `85207b7` beneath the agent commits; no rebase, amend of others' commits, or force push         | Confirmed                           |
+| Historical/announcement data gated by permission                     | Live server with a real database returned `state: "PERMISSION_UNCONFIRMED"` for announcements and withheld history unless the flag is set        | Confirmed at runtime                |
 
 Not verified and not claimed: that any dataset is licensed for redistribution, that the
 application is fit for a commercial deployment, or that the container image builds.
+
+Docker remains blocked in this environment for two independent reasons, so no container evidence
+is claimed anywhere in this document: no runtime can be installed (no reachable package mirror)
+and no base image can be pulled (`registry-1.docker.io` unreachable). See
+`docs/ENGINEERING_READINESS.md` §9 for the exact commands to reproduce the container checks where
+Docker is available.
+
+Docker remains blocked in this environment for two independent reasons, so no container evidence
+is claimed anywhere in this document: no runtime can be installed (no reachable package mirror)
+and no base image can be pulled (`registry-1.docker.io` unreachable). See
+`docs/ENGINEERING_READINESS.md` §9 for the exact commands to reproduce the container checks
+where Docker is available.
 
 ## 6. What a reviewer can verify without external access
 

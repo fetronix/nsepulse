@@ -14,9 +14,9 @@
 
 - runs as the unprivileged `node` user,
 - installs production dependencies only (`npm ci --omit=dev`),
-- contains compiled JavaScript, the Drizzle migrations folder and the OpenAPI document — no source, tests, dev dependencies, `.env` file or secrets,
+- contains compiled JavaScript and the Drizzle migrations folder — no source, tests, dev dependencies, `.env` file or secrets (the OpenAPI document is served from compiled code, so no YAML copy is needed),
 - declares a `HEALTHCHECK` against `GET /api/v1/health/live`,
-- applies migrations only when `RUN_MIGRATIONS=true`, so multiple replicas can start without racing.
+- applies migrations only when `RUN_MIGRATIONS=true`, so multiple replicas can start without racing. The runner reads `MIGRATIONS_FOLDER` (default `./drizzle/generated`), applies entries in journal order, records each exactly once, and leaves a failed migration unrecorded so a corrected re-run can apply it.
 
 Build and run locally (no production database or credentials required):
 
@@ -120,6 +120,7 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 3. Deploy code compatible with the current schema, then run `npm run db:migrate` once.
 4. Verify `GET /api/v1/health`, application queries, and logs.
 5. Do not manually drop/recreate tables as a rollback. Prefer a new corrective migration or restore to a separate recovery DB. Migration rollback is not automatically generated; data-destructive changes require a deliberate backup/restore plan.
+6. Migration sequencing, idempotency and failure behaviour are exercised by `tests/integration/migrations.test.ts` against a disposable database, using synthetic migrations in a temporary folder (the repository itself ships a single migration).
 
 ## Restart and troubleshooting
 

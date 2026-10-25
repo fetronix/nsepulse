@@ -79,9 +79,10 @@ Recorded from a fresh clone at the commit containing this document.
 - `npm run typecheck` — pass (app and server configs).
 - `npm run lint` — pass; `npm run format:check` — pass.
 - `npm run check:secrets` — pass (and verified to fail on a deliberately introduced token).
-- `npm run test:coverage` — pass: 28 test files, 221 tests; statements 88.24 %, branches
-  80.74 %, functions 89.95 %, lines 88.31 % against enforced floors of 70/60/70/70.
-- `npm run build` and `npm run build:api` — pass; `dist/server/index.js` produced.
+- `npm run test:coverage` — pass: 29 test files, 225 tests; statements 88.15 %, branches
+  80.58 %, functions 89.95 %, lines 88.21 % against enforced floors of 70/60/70/70.
+- `npm run build:all` — pass; `dist/index.html`, `dist/server/index.js` and
+  `dist/server/db/migrate.js` produced (use `build:all`; `npm run build` alone empties `dist/`).
 - `NODE_ENV=production node dist/server/index.js` — `/api/v1/health/live` 200,
   `/api/v1/health/ready` 200 `ready` with `database.configured=false` and
   `provider.state=UNCONFIGURED`, `/api/v1/announcements` `PERMISSION_UNCONFIRMED`, `SIGTERM`
@@ -89,7 +90,8 @@ Recorded from a fresh clone at the commit containing this document.
 - `npm audit --audit-level=high` — pass, `found 0 vulnerabilities` at this commit. This is a
   point-in-time result, not a permanent property.
 - `npm run test:integration:verified` — with a real PostgreSQL 16.14 and a disposable database:
-  `7 passed`, report assertion passed. Without a database the suite skips and the accompanying
+  `11 passed` across two files (repository layer plus the migration runner), report assertion
+  passed. Without a database the suite skips and the accompanying
   assertion fails, so a skipped run can no longer be mistaken for a passing one.
 - `docker build` / `docker compose up` — **not run**; no Docker daemon, socket or registry access
   was available in this environment, and no runtime can be installed. The compose file was

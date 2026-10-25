@@ -13,11 +13,18 @@ if (!config.DATABASE_URL) {
   process.exit(1);
 }
 
+/**
+ * Migrations live in `drizzle/generated` by default. `MIGRATIONS_FOLDER` exists so a
+ * deployment can mount migrations elsewhere (read-only image, mounted volume) and so the
+ * sequencing behaviour of this runner can be tested against a disposable folder.
+ */
+const migrationsFolder = process.env.MIGRATIONS_FOLDER ?? './drizzle/generated';
+
 try {
   const startedAt = Date.now();
-  await migrate(getDatabase()!, { migrationsFolder: './drizzle/generated' });
+  await migrate(getDatabase()!, { migrationsFolder });
   log.info(
-    { job: 'migrate', outcome: 'success', durationMs: Date.now() - startedAt },
+    { job: 'migrate', outcome: 'success', durationMs: Date.now() - startedAt, migrationsFolder },
     'Database migrations applied successfully.'
   );
   process.exit(0);
@@ -26,6 +33,7 @@ try {
     {
       job: 'migrate',
       outcome: 'failure',
+      migrationsFolder,
       errorClass: error instanceof Error ? error.name : 'UnknownError',
       errorMessage: error instanceof Error ? error.message : 'unknown error'
     },
