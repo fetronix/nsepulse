@@ -27,7 +27,7 @@ PostgreSQL was provisioned to close the blocked rows. Server: PostgreSQL **16.14
 `/run/containerd/containerd.sock` do not exist, `registry-1.docker.io` is unreachable, and
 `apt-get update` cannot reach any Debian mirror, so no container runtime can be installed here.
 
-Pass B found and fixed two real defects (see §18). Rows below are updated to reflect what
+Pass B found and fixed four real defects (see §18). Rows below are updated to reflect what
 Pass B actually observed, with the older Pass A statement kept only where it is still the truth.
 
 ## 1. Reproducible installation
@@ -70,7 +70,7 @@ Pass B actually observed, with the older Pass A statement kept only where it is 
 | Requirement   | Meaningful test suite with enforced, non-lowered coverage thresholds                                                                                                                                                                                |
 | Status        | **Met** for unit/API/client suites; **Met** for the PostgreSQL integration suite (Pass B)                                                                                                                                                           |
 | Verification  | `npm run test:coverage`; `TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified`                                                                                                    |
-| Actual result | `27 test files, 216 tests passed`; statements 88.24 % (878/995), branches 80.74 % (776/961), functions 89.95 % (215/239), lines 88.31 % (786/890). Integration suite: `7 passed`, report assertion `total 7, passed 7, failed 0, pending/skipped 0` |
+| Actual result | `28 test files, 221 tests passed`; statements 88.24 % (878/995), branches 80.74 % (776/961), functions 89.95 % (215/239), lines 88.31 % (786/890). Integration suite: `7 passed`, report assertion `total 7, passed 7, failed 0, pending/skipped 0` |
 | Evidence      | `vitest.config.ts` thresholds 70/60/70/70, `vitest.integration.config.ts`, `tests/**`, `test-results/integration.json` (generated, gitignored)                                                                                                      |
 | Limitation    | Integration tests run against PostgreSQL 16.14 provided by embedded binaries in this sandbox, not the Docker service used by CI. Provider behaviour is verified against mocked HTTP, not a live feed                                                |
 
@@ -238,8 +238,8 @@ Pass B actually observed, with the older Pass A statement kept only where it is 
 
 ## 18. Defects found and fixed in this pass
 
-Both were found by executing the pipeline instead of reading it, and both are covered by
-regression tests that were shown to fail against the old code.
+All four were found by executing the pipeline and the documented setup instead of only reading
+them, and each is covered by a regression test that was shown to fail against the old code.
 
 **Defect 1 — an all-skipped integration suite reported success.** `vitest run` exits 0 when
 every test skips. `npm run test:integration` with no `TEST_DATABASE_URL` printed `7 skipped` and
@@ -268,6 +268,22 @@ though the routes existed and `docs/openapi.yaml` documented two of them.
 _Fix:_ all three documented in both files; the runtime stage no longer copies the unused YAML.
 _Verified:_ `tests/api/openapi-parity.test.ts` (6) compares the served paths against the routes
 actually registered on the Express app and against the YAML; shown to fail when a path is removed.
+
+**Defect 4 — the documented local credentials did not match the Compose database.**
+`.env.example` shipped `DATABASE_URL=postgres://nse_pulse:change-me@localhost:5432/nse_pulse`
+while `docker-compose.yml` creates the database with `POSTGRES_PASSWORD` defaulting to
+`local_dev_only_change_me`. Following the quick start (`cp .env.example .env`,
+`docker compose up -d db`, `npm run db:migrate`) therefore failed with
+`password authentication failed`.
+_Fix:_ `.env.example` now documents `POSTGRES_PASSWORD`/`POSTGRES_DB` and uses the same values
+in `DATABASE_URL`; the Compose app service is confirmed to reach the database by service name
+(`db`), not `localhost`.
+_Verified:_ created a role `nse_pulse` with password `local_dev_only_change_me` and database
+`nse_pulse` in the local PostgreSQL, then ran `DATABASE_URL=postgres://nse_pulse:local_dev_only_change_me@127.0.0.1:5433/nse_pulse npm run db:migrate` → success, 31 tables. (Port 5433 was
+used locally; Compose publishes 5432, which is what `.env.example` documents.)
+_Tests:_ `tests/cli/compose-consistency.test.ts` (5) compares `.env.example` against the Compose
+defaults, asserts the container uses the service name, and asserts every published port is bound
+to `127.0.0.1`; shown to fail against the old `change-me` value.
 
 ## How to re-run everything
 

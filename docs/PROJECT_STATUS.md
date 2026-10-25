@@ -79,7 +79,7 @@ Recorded from a fresh clone at the commit containing this document.
 - `npm run typecheck` — pass (app and server configs).
 - `npm run lint` — pass; `npm run format:check` — pass.
 - `npm run check:secrets` — pass (and verified to fail on a deliberately introduced token).
-- `npm run test:coverage` — pass: 27 test files, 216 tests; statements 88.24 %, branches
+- `npm run test:coverage` — pass: 28 test files, 221 tests; statements 88.24 %, branches
   80.74 %, functions 89.95 %, lines 88.31 % against enforced floors of 70/60/70/70.
 - `npm run build` and `npm run build:api` — pass; `dist/server/index.js` produced.
 - `NODE_ENV=production node dist/server/index.js` — `/api/v1/health/live` 200,

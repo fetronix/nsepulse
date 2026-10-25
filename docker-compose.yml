@@ -40,6 +40,8 @@ services:
       NODE_ENV: production
       PORT: 4000
       HOST: 0.0.0.0
+      # Exact browser origin allowed by CORS. This stack runs the API only; serve the
+      # built client (dist/) from a static host or reverse proxy and set APP_ORIGIN to it.
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:5173}
       DATABASE_URL: postgres://nse_pulse:${POSTGRES_PASSWORD:-local_dev_only_change_me}@db:5432/${POSTGRES_DB:-nse_pulse}
       DATABASE_SSL: 'false'
@@ -61,7 +63,10 @@ services:
 
   # Disposable PostgreSQL for integration tests. Never attached to the app.
   #   docker compose --profile test up -d db-test
-  #   TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration
+  #   TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test \
+  #     npm run test:integration:verified
+  # `:verified` fails when the suite skips instead of running, so a wrong URL cannot
+  # masquerade as a passing run.
   db-test:
     image: postgres:16-alpine
     profiles: ['test']

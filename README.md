@@ -118,7 +118,7 @@ history or announcements. Everything else — type checking, linting, unit tests
 ```bash
 git clone <repository-url> nsepulse
 cd nsepulse
-cp .env.example .env      # then edit DATABASE_URL if you have a database
+cp .env.example .env      # credentials match the Compose database defaults
 npm ci                    # reproducible install from package-lock.json
 ```
 
@@ -286,6 +286,9 @@ test reports are uploaded as job artifacts. A failing test, lint rule, coverage 
 finding or build fails the run — no job is allowed to fail softly.
 
 ## 15. Docker
+
+The container runs the **API only**. The built client (`dist/index.html`, `dist/assets/`) is
+served by a static host or reverse proxy, and `APP_ORIGIN` must be set to that origin.
 
 ```bash
 docker build -t nse-pulse .
