@@ -1,0 +1,16 @@
+# Keep the build context small and free of secrets and local artifacts.
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+logs
+*.log
+*.dump
+*.sql.bak
+.DS_Store
+.vscode
+.idea

@@ -1,0 +1,534 @@
+# Engineering readiness matrix
+
+Scope: the NSE Pulse repository at the commit that contains this document. Every row states a
+requirement, the current status, **the exact command that was run**, the **actual result
+observed**, the evidence left in the repository, and the limitation that remains.
+
+Rules used when writing this file:
+
+- A requirement is only marked **Met** if the command was executed and its output observed.
+- Anything that could not be executed here is marked **Blocked** (environment) or
+  **Not implemented** (product scope), never "assumed".
+- No score, rating, payout or endorsement is implied by any status below.
+- Where a claim depends on external data or a third party, the row names what is missing.
+
+Three verification passes are recorded. Read the "Where it ran" column of every row.
+
+**Pass A — 2026-10-25, repository state `e7828a3`**: Linux sandbox, Node `v22.22.3`, npm
+`10.9.8`. No Docker daemon, **no PostgreSQL server**, no network access to a market-data
+provider. Database-dependent rows were blocked and marked as such.
+
+**Pass B — 2026-10-25, repository state `971feac` (this pass)**: same sandbox, but a real
+PostgreSQL was provisioned to close the blocked rows. Server: PostgreSQL **16.14**
+(`@embedded-postgres/linux-x64@16.14.0-beta.17`, `initdb`/`pg_ctl`/`postgres` on
+`127.0.0.1:5433`, trust-local + scram host auth). Clients: `psql`, `pg_dump`, `pg_restore`
+**16.2** from the `pgserver` wheel on PyPI. Docker is still unavailable: `docker`, `podman`,
+`nerdctl`, `buildah`, `runc`, `crun` are all absent, `/var/run/docker.sock` and
+`/run/containerd/containerd.sock` do not exist, `registry-1.docker.io` is unreachable, and
+`apt-get update` cannot reach any Debian mirror, so no container runtime can be installed here.
+
+Pass B found and fixed four real defects (see §18). Rows below are updated to reflect what
+Pass B actually observed, with the older Pass A statement kept only where it is still the truth.
+
+**Pass C — 2026-10-25, repository state `1714f31` + the commits of this pass**: re-ran the
+database work against the same PostgreSQL 16.14 harness to confirm nothing regressed, and closed
+the one row Pass B could not: **sequential migrations**. Because the repository ships a single
+migration, sequencing is now exercised by a synthetic multi-migration harness
+(`tests/integration/migrations.test.ts`) driving the real runner through the new
+`MIGRATIONS_FOLDER` setting: two migrations applied in journal order, re-run idempotent, an
+appended third applied alone, and a deliberately broken fourth failing with exit 1 while
+remaining unjournalled.
+
+Docker was re-checked in Pass C and is **still blocked**, with the blocker now narrowed to two
+independent facts rather than one: (a) no container runtime exists and none can be installed —
+`apt-get update` cannot reach `deb.debian.org`; (b) even with a runtime, image pulls are
+impossible — `registry-1.docker.io` and `auth.docker.io` both return HTTP `000` from this sandbox,
+so `FROM node:22-alpine` cannot be fetched. Outbound access is limited to GitHub hosts
+(`github.com` and `api.github.com` return 200). A Docker build is therefore not merely
+"untried" here, it is unachievable: no runtime can be obtained and no base image can be pulled.
+
+## 1. Reproducible installation
+
+| Item          | Value                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------- |
+| Requirement   | The project installs from a clean checkout using the committed lockfile                            |
+| Status        | **Met**                                                                                            |
+| Verification  | `git clone <repo> /tmp/fresh && cd /tmp/fresh && npm ci`                                           |
+| Actual result | Completed; `found 0 vulnerabilities`; `node_modules` created from `package-lock.json`              |
+| Evidence      | `package-lock.json`, `engines` (`node >=22.12 <23`, `npm >=10`), `.nvmrc` = `22`, CI uses `npm ci` |
+| Limitation    | Only Node 22.22.3 was exercised; other versions in range were not tested                           |
+
+## 2. Type checking
+
+| Item          | Value                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| Requirement   | App and server type-check under strict settings                                                        |
+| Status        | **Met**                                                                                                |
+| Verification  | `npm run typecheck` (fresh clone)                                                                      |
+| Actual result | Exit 0, no diagnostics                                                                                 |
+| Evidence      | `tsconfig.json`, `tsconfig.server.json` with `strict`, `noUncheckedIndexedAccess`, `noImplicitReturns` |
+| Limitation    | Type checking proves consistent types, not runtime correctness                                         |
+
+## 3. Linting and formatting
+
+| Item          | Value                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Requirement   | ESLint (TS + React) and Prettier pass with no suppressions added to go green                                                                           |
+| Status        | **Met**                                                                                                                                                |
+| Verification  | `npm run lint`, `npm run format:check` (fresh clone)                                                                                                   |
+| Actual result | ESLint exit 0; Prettier `All matched files use Prettier code style!`                                                                                   |
+| Evidence      | `eslint.config.js` (flat config; `no-explicit-any` error in app/server/test code), `prettier.config.js`, `.prettierignore`                             |
+| Limitation    | One documented exception exists: `react-hooks/set-state-in-effect` is disabled for client data-fetching effects, with the reason written in the config |
+
+## 4. Automated tests and coverage gates
+
+| Item          | Value                                                                                                                                                                                                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Requirement   | Meaningful test suite with enforced, non-lowered coverage thresholds                                                                                                                                                                                                                       |
+| Status        | **Met** for unit/API/client suites; **Met** for the PostgreSQL integration suite (Pass B)                                                                                                                                                                                                  |
+| Verification  | `npm run test:coverage`; `TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified`                                                                                                                                           |
+| Actual result | `29 test files, 225 tests passed`; statements 88.15 % (878/996), branches 80.58 % (776/963), functions 89.95 % (215/239), lines 88.21 % (786/891). Integration suite: `11 passed` (7 repository + 4 migration-runner), report assertion `total 11, passed 11, failed 0, pending/skipped 0` |
+| Evidence      | `vitest.config.ts` thresholds 70/60/70/70, `vitest.integration.config.ts`, `tests/**`, `test-results/integration.json` (generated, gitignored)                                                                                                                                             |
+| Limitation    | Integration tests run against PostgreSQL 16.14 provided by embedded binaries in this sandbox, not the Docker service used by CI. Provider behaviour is verified against mocked HTTP, not a live feed                                                                                       |
+
+## 5. CI pipeline
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | CI fails on any quality, test, coverage, build or audit failure; no production secrets; least privilege                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Status        | **Met**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Verification  | Push to the working branch, then `gh run list` / `gh run view <id>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Actual result | Run `40204009009` (commit `c1c7e82`, the head of this pass) concluded `success` with all five jobs green: quality 26 s, test+coverage 27 s, build 18 s, PostgreSQL integration 36 s, dependency audit 12 s. Earlier runs `40186157591`, `40186292857`, `40202739646` and `40203066683` also concluded `success`. Per-step conclusions for the integration job were read with `gh api repos/…/actions/runs/<id>/jobs`: `Apply migrations`, `Run integration tests`, `Upload integration report` and `Verify migration idempotency` all `success`. Run `40184808744` failed early on and the defect (devDependencies missing from the lockfile) was fixed in `da766a8` |
+| Evidence      | `.github/workflows/ci.yml` jobs `quality`, `test`, `build`, `integration`, `security`; `.github/dependabot.yml`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Limitation    | A green integration job did **not** prove tests executed: `vitest run` exits 0 when everything skips, and that is what happened if the database was unreachable. Fixed in this pass — see §18 defect 1 and the new `REQUIRE_INTEGRATION_TESTS` guard plus report assertion. Job logs remain undownloadable here (`gh run view --log-failed` → `EOF`), so per-step conclusions are the deepest CI evidence available                                                                                                                                                                                                                                                  |
+
+## 6. Dependency security
+
+| Item          | Value                                                                                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | High-severity advisories block CI; updates arrive automatically                                                                                                  |
+| Status        | **Met at the recorded commit**                                                                                                                                   |
+| Verification  | `npm audit --audit-level=high` (fresh clone)                                                                                                                     |
+| Actual result | `found 0 vulnerabilities`                                                                                                                                        |
+| Evidence      | CI `security` job, Dependabot weekly config, `413e6b1`-style upgrade commits                                                                                     |
+| Limitation    | An audit result is only valid for the moment it runs. This is **not** a claim of zero vulnerabilities in general. No SAST or penetration test has been performed |
+
+## 7. Secret hygiene
+
+| Item          | Value                                                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | No secrets in the repository; accidental commits are caught                                                                                       |
+| Status        | **Met**                                                                                                                                           |
+| Verification  | `npm run check:secrets`; plus a deliberate probe (a synthetic `ghp_…` token written to a scratch file)                                            |
+| Actual result | Clean scan over tracked files; the probe made the scan exit 1 and print `file:line — GitHub token`; after deleting the file the scan passed again |
+| Evidence      | `scripts/check-secrets.mjs`, CI `security` job, `.gitignore` (`.env`, dumps, `.pgdata`)                                                           |
+| Limitation    | Pattern-based scanning is a guard, not proof; a leaked credential would still require rotation and history rewriting                              |
+
+## 8. Production build and runtime
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | Client and server build artefacts are produced together, start, and answer health probes with and without a database                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Status        | **Met** (after fixing a build-ordering defect that made the container ship no server bundle — §18 defect 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Verification  | `npm run build:all`, then `NODE_ENV=production node dist/server/index.js` and `curl`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Actual result | `build:all` leaves `dist/index.html`, 29 files under `dist/server/` (including `dist/server/index.js` and `dist/server/db/migrate.js`). Without a database: `/health/live` 200, `/health/ready` 200 `ready` with `database.configured=false`. With real PostgreSQL 16.14: `/health/ready` 200, `database.ok=true` `"PostgreSQL connection is healthy."`, `dataFreshness.status=OK`, `/api/v1/securities?q=DRILL` returned the three seeded symbols, `/api/v1/quotes/DRILL1` returned the stored row, `/api/v1/quotes/UNKNOWNX` → 404 `"Security not found in the configured security master."`. Against a closed port: `/health/ready` → **503 `not_ready`** with `database.ok=false` and the non-leaky detail `"Database connection failed; details are intentionally not exposed."`, while `/health/live` stayed 200 and `/health` reported `degraded`. `SIGTERM` produced `shutdown_started` → `shutdown_complete` |
+| Evidence      | `src/server/index.ts`, `src/server/api/app.ts`, `src/server/services/health.ts`, `tests/cli/build-pipeline.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Limitation    | Executed as a production-mode process, not inside a container (see §9). The "closed port" case simulates an unreachable database, not a server that dies mid-query                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+## 9. Containerisation
+
+| Item                                                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement                                            | Multi-stage image, non-root, health check, no secrets, migrations opt-in, loopback-only database, and an image that can actually start                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Status                                                 | **Blocked** — no container runtime exists in this environment and none can be installed. Configuration was reviewed, both image stages were simulated file-for-file, and the compose file was schema-validated. **No `docker build` and no container start has been executed.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Verification                                           | `command -v docker podman nerdctl buildah runc crun img` → all absent; `ls /var/run/docker.sock /run/containerd/containerd.sock` → absent; `curl https://registry-1.docker.io/v2/` and `https://auth.docker.io/token` → HTTP `000` (unreachable); `sudo apt-get update` → cannot reach `deb.debian.org`, so no runtime can be installed; outbound access limited to `github.com` / `api.github.com` (both 200)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Actual result                                          | Image build and container start: **not run, and not achievable here**. Two independent blockers: no runtime obtainable, and no base image pullable, so `FROM node:22-alpine` cannot be resolved. What _was_ executed instead (re-confirmed in Pass C against the current build): <br>1. **Build-stage simulation** — copied exactly the files the build stage copies (`package.json`, lockfile, `tsconfig.json`, `tsconfig.server.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, `src/`), ran `npm ci` then `npm run build:all` → exit 0. <br>2. **Runtime-stage simulation** — copied exactly the runtime stage's file set (`package.json` + lockfile, `npm ci --omit=dev` → 127 packages, `dist/`, `drizzle/`, `entrypoint.sh`) and ran the entrypoint against real PostgreSQL on port 4191: `RUN_MIGRATIONS=true` logged `applying database migrations`, migrated a fresh database to 31 tables, started the server, answered `/health/live` 200 and `/health/ready` 200 (`database.ok=true`, `"PostgreSQL connection is healthy."`, `dataFreshness NO_DATA`), then exited on `SIGTERM` with `shutdown_started`/`shutdown_complete`. `RUN_MIGRATIONS=false` attempted no migration and left the database at 0 tables. <br>3. **Process model** — after `exec "$@"` exactly one process remained (`node dist/server/index.js`), so signals reach the server directly. <br>4. **Logs** — request lines carried `req.correlationId` (a supplied `x-request-id` was echoed back), and the log held no credential material (0 matches for the database password). <br>5. **Compose schema** — `docker-compose.yml` validated against the official Compose Specification JSON schema with `ajv` (draft 2020-12): valid, services `db`, `app`, `db-test`, every published port bound to `127.0.0.1`, healthchecks on all three. |
+| Evidence                                               | `Dockerfile` (multi-stage, `USER node`, `HEALTHCHECK` on `/api/v1/health/live`, `RUN_MIGRATIONS` opt-in), `docker/entrypoint.sh` (`exec "$@"`), `docker-compose.yml`, `.dockerignore`, `tests/cli/compose-consistency.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Limitation                                             | A simulation is not a build. It cannot verify: the `node:22-alpine` base image contents (`wget` for the health check), layer caching, `USER node` permissions at runtime, the image containing no secrets, image size, or that `docker compose up` wires services correctly. Treat the image as unverified until built. A third-party Dockerfile linter was tried and discarded: it reported zero issues even for a deliberately broken Dockerfile, so it is not evidence of anything.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Exact next commands (run where a Docker daemon exists) | `docker build -t nse-pulse .` <br>`docker run --rm -p 127.0.0.1:4000:4000 -e MARKET_DATA_PROVIDER=none nse-pulse` <br>`curl -s http://127.0.0.1:4000/api/v1/health/ready` <br>`docker compose --profile test up -d db-test` <br>`TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified` <br>`docker compose up --build -d && docker compose ps && docker compose logs app && docker compose exec app id` (expect `uid=1000(node)`) <br>`docker compose down -v`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+## 10. Database migrations
+
+| Item                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement         | Versioned migrations that apply to an empty database, are safe to re-run, apply in order, and fail safely                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Status              | **Met** — initialisation, idempotency, and multi-step sequencing (the latter via a synthetic harness)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Verification        | `DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_pass_c_test npm run db:migrate` (twice), `npm run db:check`, object counts via `psql`, plus `tests/integration/migrations.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Actual result       | From an empty database (Pass C): 31 tables, 67 indexes, 30 foreign keys, 217 primary-key/unique/check constraints, 1 row in `drizzle.__drizzle_migrations`. Second run in 42 ms with no change to those counts (journal still 1 row). `npm run db:check` → `{"configured":true,"reachable":true,"message":"PostgreSQL connection is healthy."}`. With no `DATABASE_URL`: exit 1 with a structured error                                                                                                                                                                                                                                                                            |
+| Sequencing (Pass C) | `tests/integration/migrations.test.ts` drives the real `src/server/db/migrate.ts` against a disposable database using **synthetic** migrations in a temporary folder, selected with the new `MIGRATIONS_FOLDER` setting. Observed: two migrations applied in journal order (journal 2 rows, expected columns present, seed row inserted by the second migration); re-run idempotent (still 2 rows, data unchanged); an appended third migration applied alone (`weight_grams` added, journal 3 rows); a deliberately broken fourth **failed with exit 1** and was **not** journalled (still 3 rows), so a corrected re-run can apply it. 4 tests, passing against PostgreSQL 16.14 |
+| Evidence            | `drizzle/generated/0000_colorful_tarot.sql`, `drizzle/generated/meta/_journal.json`, `src/server/db/migrate.ts` (honours `MIGRATIONS_FOLDER`), `tests/integration/migrations.test.ts`, `npm run db:check`, CI integration job                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Limitation          | **The repository itself ships a single migration**, so this project's schema history is not multi-step; the ordering evidence comes from the synthetic harness, not from the project's own migration files. Rollback/down-migration is not implemented (Drizzle generates forward-only SQL); recovery relies on restore from backup (§10a)                                                                                                                                                                                                                                                                                                                                         |
+
+## 10a. Backup, restore and integrity
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | A backup can be produced, restored into a fresh database, and verified equivalent                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Status        | **Met** (disposable local databases only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Verification  | `pg_dump -Fc` → `pg_restore --no-owner --no-privileges --exit-on-error` into a second database, then a per-table comparison of `count(*)` and `md5(string_agg(row::text, '                                                                                                                                                                                                                                                                                                                                                               | ' ORDER BY …))` across all 31 tables, plus index/foreign-key counts |
+| Actual result | Dump: 70,232 bytes, 167 TOC entries, sha256 `e706420f4b0b8b0dbdb245cac436bec54dafe7f949768259e700e723d03bfab3`, over 3 securities + 3 observations + 3 historical rows of disposable fixture data. Restore: exit 0. Comparison: **31/31 tables identical, 0 mismatches**, indexes 67 vs 67, foreign keys 30 vs 30, testimonial join `observations → securities` resolved 3 rows. Re-running `npm run db:migrate` on the restored database was a no-op with the journal still at 1 row, so the restored copy is a valid deployment target |
+| Evidence      | `docs/OPERATIONS.md` (drill table), commands reproduced there                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Limitation    | Client tools were PostgreSQL **16.2** against a **16.14** server; `pg_dump` refuses to run when it is older than the server (a 14.10 client aborted with "server version mismatch"), so match major versions in operations. Encryption at rest, off-site storage, restore-time-objective measurement and a real production dataset were **not** tested                                                                                                                                                                                   |
+
+## 11. Environment completeness
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | Every variable the code reads is documented, validated and defaulted                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Status        | **Met**                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Verification  | `tests/cli/env-documentation.test.ts` (4 tests) unions `process.env.*` reads across `src/`, `scripts/`, `docker/` with the Zod schema keys in `src/server/config.ts` and asserts each is documented in `.env.example`; plus `tests/server/config.test.ts` for defaults, enum rejection, demo refusal in production and `LOG_LEVEL` levels                                                                                                                                     |
+| Actual result | 22 documented keys, no duplicates, no undocumented reads, reconciled as: 16 Zod-validated application variables (including `LOG_LEVEL`), 3 read directly and not through the schema (`MIGRATIONS_FOLDER`, `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT`), and 3 consumed outside the application (`POSTGRES_PASSWORD`, `POSTGRES_DB` by Compose, `RUN_MIGRATIONS` by the entrypoint). The guard was shown to fail when the `MIGRATIONS_FOLDER` line was removed |
+| Evidence      | `.env.example`, `src/server/config.ts`, `src/server/db/migrate.ts`, README §8, `tests/cli/env-documentation.test.ts`                                                                                                                                                                                                                                                                                                                                                          |
+| Limitation    | Third-party libraries read additional variables (e.g. `PG*`, `NODE_OPTIONS`) that are not ours to validate                                                                                                                                                                                                                                                                                                                                                                    |
+
+## 12. Observability
+
+| Item          | Value                                                                                                                                                                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | Structured logs, correlation ids, health probes, graceful shutdown, no secrets in logs                                                                                                                                                                                                             |
+| Status        | **Met**                                                                                                                                                                                                                                                                                            |
+| Verification  | `npm run test:coverage` (`tests/server/logging.test.ts`, `tests/server/health.test.ts`, `tests/api/health-routes.test.ts`); runtime curl + log inspection                                                                                                                                          |
+| Actual result | JSON log lines carry `service`, `env`, `module`, `time`, `level`, `msg`; request lines add `req.correlationId`, method, path (no query), status, `responseTime`; `x-request-id` echoed when UUID-shaped, regenerated otherwise; redaction covers authorization/cookie/token/apiKey/password/secret |
+| Evidence      | `src/server/logging/logger.ts`, `src/server/services/health.ts`, `docs/OPERATIONS.md`, `docs/SECURITY.md`                                                                                                                                                                                          |
+| Limitation    | Log retention, shipping and alerting are deployment concerns not implemented here                                                                                                                                                                                                                  |
+
+## 13. Domain-honesty constraints
+
+| Item          | Value                                                                                                                                                                                                                                                           |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | Never present unavailable, demo or stale data as live; preserve provenance and permission labels                                                                                                                                                                |
+| Status        | **Met**                                                                                                                                                                                                                                                         |
+| Verification  | Unit/API tests for demo labelling, permission gating, freshness states and quote-unavailable reasons; runtime curl of the unconfigured server                                                                                                                   |
+| Actual result | `MARKET_DATA_PROVIDER=none` reports `liveQuoteAdapterEnabled: false`; announcements return `PERMISSION_UNCONFIRMED`; readiness reports `dataFreshness: NO_DATA`; demo fixtures require `ALLOW_DEMO_MARKET_DATA=true` and are refused when `NODE_ENV=production` |
+| Evidence      | `src/server/providers/**`, `src/server/services/data-sources.ts`, `tests/server/market-service.test.ts`, `tests/server/data-sources.test.ts`                                                                                                                    |
+| Limitation    | No licensed dataset exists, so nothing about real NSE values is verified                                                                                                                                                                                        |
+
+## 14. Documentation
+
+| Item          | Value                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | README, env reference, operations, security, status, API description and contribution guide match the code                                                            |
+| Status        | **Met**                                                                                                                                                               |
+| Verification  | README commands cross-checked against `package.json` scripts; `docs/openapi.yaml` parsed and its paths compared with the routes registered in `src/server/api/app.ts` |
+| Actual result | 13 documented paths match 13 registered routes; all documented commands exist in `package.json`                                                                       |
+| Evidence      | `README.md` (20 sections), `.env.example`, `docs/OPERATIONS.md`, `docs/SECURITY.md`, `docs/PROJECT_STATUS.md`, `docs/openapi.yaml`, `CONTRIBUTING.md`                 |
+| Limitation    | OpenAPI entries are summaries, not full schemas; response shapes are described in prose and tests rather than JSON Schema                                             |
+
+## 15. Licensing and provenance
+
+| Item          | Value                                                                                                                                                                                                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | Truthful provenance inventory, no false ownership claims, no repository licence assertion                                                                                                                                                                                                      |
+| Status        | **Met as an inventory** — the repository has no `LICENSE` file, and none was added                                                                                                                                                                                                             |
+| Verification  | `npx license-checker --production --json`, `npx license-checker --json`, `git log`, `package.json`                                                                                                                                                                                             |
+| Actual result | Production tree: 122 packages — MIT 111, ISC 6, BSD-2-Clause 2, BSD-3-Clause 1, Apache-2.0 1 (plus the project itself, unlicensed). Full tree: 423 packages — MIT 353, ISC 24, Apache-2.0 20, BSD-2-Clause 9, BSD-3-Clause 7, MPL-2.0 6, CC-BY-4.0 1 (`caniuse-lite`), 0BSD 1, BlueOak-1.0.0 1 |
+| Evidence      | `docs/DATAFACTOR_REVIEW.md`                                                                                                                                                                                                                                                                    |
+| Limitation    | No licence review by counsel; no market-data licence exists; copyright ownership beyond the recorded commit authorship is not established                                                                                                                                                      |
+
+## 16. Integration testing against real PostgreSQL
+
+| Item                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement                  | Repository-layer tests run against a real disposable database, and a run that skips cannot be reported as a pass                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Status                       | **Met** locally (Pass B) and in CI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Verification                 | Local: PostgreSQL 16.14 on `127.0.0.1:5433`, then `TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified`. CI: the `integration` job with a `postgres:16-alpine` service                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Actual result                | **Local (Pass C, this environment):** `11 passed` across 2 files (7 repository-layer + 4 migration-runner), then `Integration assertion passed: total 11, passed 11, failed 0, pending/skipped 0 (>= 11 passed, 0 failed)`. **CI:** job `PostgreSQL integration tests` concluded `success` in runs `40186157591`, `40186292857`, `40202739646`, `40203066683` and `40204009009` (commit `c1c7e82`). That job runs `npm run test:integration:verified`, so a passing step means the report assertion found at least 11 passed tests — a skipped suite would fail the job. The uploaded `integration-report` artifact grew from 875 bytes to 1085 bytes when the 4 migration tests were added, consistent with the larger suite. The artifact itself could not be downloaded here: its blob host (`productionresultssa*.blob.core.windows.net`) is outside this sandbox's egress allowlist and the download ends in `EOF`, so the per-test names were not read from CI |
+| Distinguishing local from CI | Local runs used embedded PostgreSQL binaries and a hand-created role/database (`nse_pulse_test`/`test_only`) — **not** the compose `db-test` service. CI uses the GitHub Actions service container with `REQUIRE_INTEGRATION_TESTS=true`. Neither run touches a production database; the setup guard refuses any database whose name lacks `test` and any URL equal to `DATABASE_URL`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Evidence                     | `tests/integration/database.test.ts`, `tests/integration/setup.ts`, `scripts/assert-integration-ran.mjs`, `tests/cli/integration-guards.test.ts` (9 tests), CI `integration` job                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Limitation                   | 7 tests cover the repository layer only (securities, observations, history, announcements, counts). No test exercises concurrent writers, advisory-lock contention, disk-full or connection-pool exhaustion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## 17. Items explicitly not ready
+
+| Item                                    | Status          | Why                                                                |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| Live market-data ingestion              | Not implemented | No provider contract, credentials or licence                       |
+| Authentication, sessions, roles         | Not implemented | No user-scoped write endpoints exist                               |
+| Watchlists, portfolios, alerts delivery | Not implemented | Depends on authentication                                          |
+| News, fundamentals, corporate actions   | Not implemented | No permitted source                                                |
+| Telegram notification queue             | Not implemented | Bot is read-only and polling-only                                  |
+| Load, penetration and chaos testing     | Not performed   | Out of scope for this increment                                    |
+| Commercial-use clearance                | Unknown         | No repository licence; market-data rights belong to the data owner |
+| Container image verified                | Blocked         | No Docker daemon, socket or registry access in this environment    |
+| Multi-step migration sequence           | Not exercised   | Only one migration file exists                                     |
+| Migration rollback / down-migrations    | Not implemented | Forward-only Drizzle migrations; recovery is restore-from-backup   |
+| Backup encryption and off-site storage  | Not implemented | Drill covered dump/restore integrity only                          |
+| Scheduler and Telegram under real load  | Not verified    | Scheduler disabled by default; bot polling not exercised here      |
+
+## 18. Defects found and fixed in this pass
+
+All four were found by executing the pipeline and the documented setup instead of only reading
+them, and each is covered by a regression test that was shown to fail against the old code.
+
+**Defect 1 — an all-skipped integration suite reported success.** `vitest run` exits 0 when
+every test skips. `npm run test:integration` with no `TEST_DATABASE_URL` printed `7 skipped` and
+exited **0**, so the CI `integration` job could be green while executing nothing (a database
+outage, a wrong port or an unset variable would all have looked like success).
+_Fix:_ `REQUIRE_INTEGRATION_TESTS=true` (set in CI only) turns a missing URL into a hard error;
+`scripts/assert-integration-ran.mjs` additionally requires ≥ 7 passed tests in the JSON report.
+_Verified:_ guard exits 1 without a database; assertion exits 1 on an all-skipped report and 0
+on a real run. _Tests:_ `tests/cli/integration-guards.test.ts` (9).
+
+**Defect 2 — the container build discarded the compiled server.** `vite build` empties `dist/`
+and `tsc -p tsconfig.server.json` also writes to `dist/`, so the Dockerfile's
+`npm run build:api && npm run build` produced an image with **no server bundle**; the container
+would have failed on startup (`Cannot find module '/app/dist/server/db/migrate.js'`, then the
+same for `index.js`). Reproduced: `build:api` → 29 server files, `build` → 0.
+_Fix:_ new `build:all` script (typecheck → vite build → tsc) used by the Dockerfile and by
+`npm run verify`; the CI build job asserts `dist/index.html`, `dist/server/index.js` and
+`dist/server/db/migrate.js` all exist.
+_Verified:_ `build:all` produces all three artefacts; the runtime simulation then migrated and
+served successfully. _Tests:_ `tests/cli/build-pipeline.test.ts` (5), shown to fail with the old
+ordering restored.
+
+**Defect 3 — the served API specification had drifted.** `/api/v1/docs` is generated from
+`src/server/api/openapi.ts`, which was missing `/health/live`, `/health/ready` and `/docs` even
+though the routes existed and `docs/openapi.yaml` documented two of them.
+_Fix:_ all three documented in both files; the runtime stage no longer copies the unused YAML.
+_Verified:_ `tests/api/openapi-parity.test.ts` (6) compares the served paths against the routes
+actually registered on the Express app and against the YAML; shown to fail when a path is removed.
+
+**Defect 4 — the documented local credentials did not match the Compose database.**
+`.env.example` shipped `DATABASE_URL=postgres://nse_pulse:change-me@localhost:5432/nse_pulse`
+while `docker-compose.yml` creates the database with `POSTGRES_PASSWORD` defaulting to
+`local_dev_only_change_me`. Following the quick start (`cp .env.example .env`,
+`docker compose up -d db`, `npm run db:migrate`) therefore failed with
+`password authentication failed`.
+_Fix:_ `.env.example` now documents `POSTGRES_PASSWORD`/`POSTGRES_DB` and uses the same values
+in `DATABASE_URL`; the Compose app service is confirmed to reach the database by service name
+(`db`), not `localhost`.
+_Verified:_ created a role `nse_pulse` with password `local_dev_only_change_me` and database
+`nse_pulse` in the local PostgreSQL, then ran `DATABASE_URL=postgres://nse_pulse:local_dev_only_change_me@127.0.0.1:5433/nse_pulse npm run db:migrate` → success, 31 tables. (Port 5433 was
+used locally; Compose publishes 5432, which is what `.env.example` documents.)
+_Tests:_ `tests/cli/compose-consistency.test.ts` (5) compares `.env.example` against the Compose
+defaults, asserts the container uses the service name, and asserts every published port is bound
+to `127.0.0.1`; shown to fail against the old `change-me` value.
+
+**Gap introduced and closed within Pass C (reported for transparency, not a pre-existing defect).**
+Adding `MIGRATIONS_FOLDER` to the migration runner created a variable that the code read but
+`.env.example` did not document — the same drift that had been fixed by hand in earlier passes.
+`.env.example`, `README.md` §8 and `docs/OPERATIONS.md` now document it, and
+`tests/cli/env-documentation.test.ts` (4 tests) now enforces the invariant: it unions
+`process.env.*` reads across `src/`, `scripts/` and `docker/` with the Zod schema keys in
+`src/server/config.ts`, and fails if any is missing from `.env.example`. Shown to fail by removing
+the `MIGRATIONS_FOLDER` line again.
+
+## 19. Mansa market-data adapter and Telegram integration
+
+| Item          | Value                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement   | A real, documented market-data adapter usable by the API, the scheduler and the existing Telegram bot, without inventing endpoints or fields                                                                                                                                                                                                                          |
+| Status        | **Implemented and covered by mocked tests; live behaviour unverified**                                                                                                                                                                                                                                                                                                |
+| Verification  | `npx vitest run tests/providers/mansa-client.test.ts tests/providers/mansa-normalize.test.ts tests/providers/mansa-provider.test.ts tests/providers/mansa-selection.test.ts tests/server/mansa-market-service.test.ts tests/telegram/mansa-bot.test.ts`                                                                                                               |
+| Actual result | `87 unit tests` across those six files pass (17 client, 24 normalisation, 21 provider, 6 selection, 6 service, 13 Telegram). Whole suite: `313 passed, 2 skipped` across `36` files at 86.47/78.98/88.16/87.42 coverage against the unchanged 70/60/70/70 floors                                                                                                      |
+| Evidence      | `src/server/providers/mansa/{client,errors,normalize,provider,cache}.ts`, `src/server/services/market.ts`, `src/server/telegram/bot.ts`, `scripts/mansa-probe.ts`, `.env.example`, `README.md` §8/§12, `docs/PROVIDER_SETUP.md`, `docs/SECURITY.md`                                                                                                                   |
+| Limitation    | **No authenticated request to mansaapi.com was ever made from this environment.** `curl https://mansaapi.com` returns `000` (egress is restricted to GitHub/npm/PyPI), so the documentation was read through the page-fetch tool and the adapter was exercised only against mocked `fetch` responses. Nothing here constitutes proof that live Kenyan NSE prices work |
+
+### What the documentation actually establishes
+
+Read from `https://mansaapi.com/docs`, `/docs/markets`, `/docs/ai-agents`, `/llms.txt` and
+`/openapi.json`:
+
+- Base URL `https://mansaapi.com`; `Authorization: Bearer mansa_live_sk_...`.
+- `401` distinguishes `MISSING_API_KEY` from `INVALID_API_KEY`; `429` is the daily limit; a free
+  tier of **100 requests/day** covering quotes, exchanges, calendars and indices.
+- Exchange codes are documented as `NGX, GSE, NSE, JSE, BRVM, DSE, LUSE`, and a security-master
+  example returns `{"exchange": "NSE", "ticker": "ABSA", "legal_name": "ABSA Bank Kenya"}`,
+  confirming `NSE` is Kenya.
+- Markets endpoints "currently target 30-minute freshness during market hours".
+- Per-stock history is "Pro plan and above".
+
+### What the documentation does not establish
+
+The field names **inside** a `/stocks` record are not published anywhere: the OpenAPI schema for
+`data` is a free-form object and worked examples exist only for ETFs, indices, history, insider
+trades and disclosures. The adapter therefore (a) tolerates a documented-style alias set,
+(b) records which alias matched on every observation, (c) refuses records lacking a ticker or a
+positive price, and (d) ships `npm run mansa:probe` to print the real key names from a live
+response. That gap is the single most important thing to close before trusting this in
+production, and it is stated in `README.md`, `docs/PROVIDER_SETUP.md` and `docs/PROJECT_STATUS.md`
+rather than papered over.
+
+### Behaviour that is enforced by tests rather than asserted in prose
+
+- `REAL_TIME` is never produced; a payload inside the 30-minute target is `DELAYED`, older is
+  `UNKNOWN`, over 24 hours is stale, and a future timestamp is rejected.
+- A 429 `Retry-After` of 120 s is surfaced instead of waited out; a 5xx is retried at most twice.
+- The local daily budget is checked before every request and throws `QUOTA` without sending one.
+- Repeated quotes and identical concurrent lookups cost one upstream request; a warmed snapshot
+  answers per-symbol quotes with no request at all.
+- The API key never appears in an error message, log field, provider status or stack trace.
+- A non-HTTPS base URL is refused before any token is sent.
+- A missing key leaves the HTTP API fully working and the quote route honest.
+- A Telegram handler failure (provider or transport) produces an explicit fallback reply instead
+  of an unhandled rejection, and polling can only be claimed once per process, with a PostgreSQL
+  advisory lock preventing a second replica from polling at all.
+
+### Deliberately not implemented
+
+Alert generation and de-duplication across restarts: no alert evaluation or delivery pipeline
+exists in this repository, so there is nothing to de-duplicate. Adding an alert engine was out of
+scope for this change and is not claimed.
+
+## Fresh-clone verification
+
+Run on a clean clone of the branch head (`d0b2a64`) rather than on the working tree, to prove the
+committed state is self-sufficient:
+
+| Step                                                   | Result                                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `git clone --depth 1 --branch arena/312bd37d-nsepulse` | OK, head `d0b2a64`                                                                                           |
+| `npm ci`                                               | `added 430 packages in 5s` (no lockfile drift)                                                               |
+| `npm run typecheck`                                    | pass, no output                                                                                              |
+| `npm run lint`                                         | pass, no output                                                                                              |
+| `npm run format:check`                                 | `All matched files use Prettier code style!`                                                                 |
+| `npm run check:secrets`                                | `102 file(s) scanned, no credential-shaped strings found`                                                    |
+| `npm run test:coverage`                                | `29 passed` files, `225 passed` tests, 88.15/80.58/89.95/88.21                                               |
+| `npm run build:all`                                    | pass, `dist/index.html`, `dist/server/index.js`, `dist/server/db/migrate.js` present                         |
+| `npm audit --audit-level=high`                         | `found 0 vulnerabilities`                                                                                    |
+| `npm run test:integration:verified`                    | `11 passed`, assertion `total 11, passed 11, failed 0, pending/skipped 0`                                    |
+| Built server against the drill database                | `/api/v1/health/live` 200, `/api/v1/health/ready` 200, `/api/v1/securities?q=PASSC` returned `PASSC1,PASSC2` |
+| Runtime log scan                                       | 0 occurrences of `password`/`secret`/`changeme`                                                              |
+| `git status --short` after all runs                    | empty (no generated file is tracked)                                                                         |
+
+The scan covers 102 files at the branch head, up from 100 before this pass, because the two new
+test files are now tracked. Both the clone and the working tree report the same count.
+
+## 20. Verification pass: environment contract, line endings and HTTP hardening
+
+This pass started from a reported fresh-clone failure: `npm run format:check` failing on 86 files
+on Windows, with Node v24.18.1 installed while `package.json` requires `>=22.12.0 <23`.
+
+### Root cause of the formatting failure
+
+The committed source was already correctly formatted. `prettier.config.js` sets
+`endOfLine: 'lf'`, but the repository had no `.gitattributes`, and Git for Windows defaults to
+`core.autocrlf=true`, which converts the working tree to CRLF on checkout. Prettier then reports
+every text file as unformatted.
+
+The failure was reproduced against the branch head on this machine by cloning with
+`git -c core.autocrlf=true clone`:
+
+| Step                                                         | Result                                       |
+| ------------------------------------------------------------ | -------------------------------------------- |
+| `prettier --check .` on the CRLF checkout                    | `Code style issues found in 107 files`       |
+| Convert CRLF → LF in that same checkout, change nothing else | 121 files touched (line endings only)        |
+| `prettier --check .` again                                   | `All matched files use Prettier code style!` |
+
+The 107-vs-86 difference between this reproduction and the report is explained by which files a
+given checkout contains (the reported run predates the current branch head); the failure class is
+identical and is entirely line endings.
+
+**Fix:** a `.gitattributes` with `* text=auto eol=lf` (plus `eol=lf` for shell/YAML and `binary`
+for assets), so the index and every checkout use LF regardless of platform or `core.autocrlf`.
+No Prettier rule was relaxed, no file was excluded, and no source file content changed.
+
+### Node version contract
+
+`engines` alone is advisory — npm prints `EBADENGINE` and continues, which is how an unsupported
+runtime reaches the toolchain and produces confusing downstream failures. CI already pinned
+`NODE_VERSION: '22'`, matching `engines` and `.nvmrc`; the gap was local.
+
+**Fix:** `.npmrc` with `engine-strict=true`, verified by temporarily setting `engines.node` to an
+impossible range (`npm ci --dry-run` → `npm error code EBADENGINE`, exit 1) and restoring it.
+Node 22.22.3 was used for every command below.
+
+### Defect fixed in the scheduled snapshot refresh
+
+`scheduleSnapshotRefresh` awaited `withAdvisoryLock` **outside** its try/catch, so a database
+failure while acquiring the lock produced an unhandled promise rejection from a cron callback —
+invisible in the logs and fatal under `--unhandled-rejections=strict`. The adapter was also cast to
+`MansaProvider` on `live` alone, so any future live adapter would throw every 30 minutes. Both are
+fixed by `refreshProviderSnapshotOnce`, which contains every failure, checks the snapshot contract
+instead of casting, and returns an outcome so the behaviour is testable without waiting for a tick
+(6 tests: success, lock held elsewhere, lock failure, provider failure, non-Mansa adapter, throwing
+`usage()`).
+
+### HTTP timeouts
+
+Node's default `requestTimeout` is 300 s and `headersTimeout` is 60 s. For an API whose slowest
+legitimate response is one upstream call bounded by `MANSA_REQUEST_TIMEOUT_MS` (10 s), those are
+generous. `src/server/api/http.ts` now applies 15 s headers / 30 s request / 5 s keep-alive,
+asserted against a real `http.Server`. Honest note: on Node ≥ 19 `server.close()` already closes
+idle keep-alive sockets, so `drainServer` is not a fix for a current defect — it names the intent
+and keeps the drain covered by a test. A live shutdown with an idle keep-alive client open was
+measured at 9 ms with `shutdown_complete` and exit code 0.
+
+### Commands run in this pass (Node 22.22.3, npm 10.9.8)
+
+| Command                               | Result                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `npm ci`                              | pass, exit 0                                                                |
+| `npm run typecheck`                   | pass, exit 0, no output                                                     |
+| `npm run lint`                        | pass, exit 0, no output                                                     |
+| `npm run format:check`                | pass, `All matched files use Prettier code style!`                          |
+| `npm run format` (write mode)         | pass, **0 files changed** — the committed source was already formatted      |
+| `npm run check`                       | pass, exit 0 (new script: typecheck + lint + format:check + secret scan)    |
+| `npm run test`                        | pass, 41 files, **363 passed**, 2 skipped                                   |
+| `npm run test:coverage`               | pass, coverage **85.73 / 78.09 / 88.54 / 86.72** (thresholds 70/60/70/70)   |
+| `npm run build`                       | pass, `dist/assets/index-D5GLndN3.js` (182.85 kB)                           |
+| `npm run build:all`                   | pass, client bundle plus `dist/server/index.js`                             |
+| `npm audit --audit-level=high`        | `found 0 vulnerabilities`                                                   |
+| `npm run check:secrets`               | 121 files scanned, no credential-shaped strings                             |
+| `npm run test:integration:verified`   | **14 passed**, assertion `total 14, passed 14, failed 0, pending/skipped 0` |
+| `git status --short` after every gate | empty                                                                       |
+
+`npm run check` did not exist before this pass; the requested command now exists and is a strict
+subset of `npm run verify` (which adds coverage and both builds).
+
+### Integration job: does it really execute?
+
+Verified rather than assumed, in three ways:
+
+1. `tests/integration/setup.ts` throws when `REQUIRE_INTEGRATION_TESTS=true` and
+   `TEST_DATABASE_URL` is unset: `npx vitest run --config vitest.integration.config.ts` without a
+   database exits **1** instead of reporting an all-skipped suite as success.
+2. `scripts/assert-integration-ran.mjs` fails on an empty report (verified by substituting a
+   report with `numTotalTests: 0`): exit **1**, "A suite that skips is not a suite that passes."
+3. The CI job uses a real `postgres:16-alpine` service with health checks and test-only
+   credentials, applies migrations, runs the suite, asserts the report, then re-runs migrations to
+   prove idempotency.
+
+### Security review of secret surfaces
+
+| Check                                                                                | Result                     |
+| ------------------------------------------------------------------------------------ | -------------------------- |
+| `mansa_live_sk`, `MANSA_API_KEY`, `TELEGRAM_BOT_TOKEN`, bot-id in `dist/assets/*.js` | 0 matches                  |
+| Server-only env names anywhere under `dist/` client output                           | only `dist/server/**`      |
+| `Authorization: Bearer …` and `?token=…` sent to a running server, then log scanned  | 0 occurrences of the value |
+| `check-secrets` over the repository                                                  | 121 files, clean           |
+| `.gitignore` / `.dockerignore` exclude `.env`, `.env.*`, `logs`, dumps               | yes                        |
+
+### What this pass did not verify
+
+- **No Docker build or `docker compose up`.** No container runtime is available in this
+  environment. The Dockerfile was read and its ordering constraints are covered by
+  `tests/cli/build-pipeline.test.ts`, but nothing was built or started.
+- **No Mansa API call.** `mansaapi.com` is unreachable from this environment, so no authenticated
+  response, NSE instrument list, or timestamp/freshness behaviour was confirmed. Real market-data
+  access therefore stays disabled (`MARKET_DATA_PROVIDER=none`) and no quote is claimed.
+- **Node 24 was not tested.** The supported range remains `>=22.12.0 <23`, now enforced at install
+  time. Widening it would require a passing run on 24 first.
+- No backup/restore drill, SAST, penetration test or load test was run in this pass.
+
+## How to re-run everything
+
+```bash
+cd <fresh clone>
+npm ci
+npm run typecheck
+npm run lint
+npm run format:check
+npm run check:secrets
+npm run test:coverage
+npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
+npm run build:all
+npm run check:secrets
+docker compose --profile test up -d db-test   # if Docker exists
+TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified
+docker build -t nse-pulse .
+docker compose up -d && curl -s localhost:4000/api/v1/health/ready
+```
+
+If a step cannot be run in your environment, record it as not run. Do not upgrade this matrix
+on the strength of a different machine's results.

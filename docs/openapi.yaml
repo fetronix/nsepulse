@@ -6,6 +6,25 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /docs:
+    get:
+      summary: This OpenAPI document
+      description: Machine-readable description of every route this service registers.
+      responses:
+        '200': { description: OpenAPI 3.1 document }
+  /health/live:
+    get:
+      summary: Liveness probe
+      description: Process-level check with no dependency calls. Safe for container and orchestrator probes.
+      responses:
+        '200': { description: 'status=ok, version, uptimeSeconds, timestamp and reporting timezone' }
+  /health/ready:
+    get:
+      summary: Readiness probe
+      description: Aggregates process, database, provider and data-freshness checks. An unconfigured database is reported as ok (nothing to depend on); a configured but unreachable database is not ok.
+      responses:
+        '200': { description: 'status=ready with per-check detail' }
+        '503': { description: 'status=not_ready; at least one blocking check failed' }
   /health:
     get:
       summary: Application, database and provider health
@@ -13,14 +32,46 @@ paths:
         '200': { description: Health status; provider and database status are independent }
   /providers:
     get:
-      summary: Provider connection/configuration status
+      summary: Provider adapter status
       responses:
-        '200': { description: No secrets are returned }
+        '200': { description: Provider states; credentials are never included }
+  /providers/configuration:
+    get:
+      summary: Provider commissioning view
+      description: Provider name and integration status, credential presence (never values), declared securities coverage, access level, last successful retrieval, connection/data-validation results and outstanding licensing.
+      responses:
+        '200':
+          { description: Explicit unconfigured or demo state; no endpoint, credential or live-data claim is invented }
+  /providers/test:
+    post:
+      summary: Run local adapter connection and data-validation checks
+      description: Local checks only. The response states whether any outbound network request was made.
+      responses:
+        '200': { description: Test results plus the refreshed configuration view }
+        '429': { description: Too many test runs }
+  /data-sources:
+    get:
+      summary: Independent data-source permissions and freshness
+      description: Historical records, issuer announcements, the security master and the live quote feed each carry an explicit permission basis and freshness label.
+      responses:
+        '200': { description: Source descriptors; availability never implies a licence }
+  /announcements:
+    get:
+      summary: Official company announcements from an enabled permitted source
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 25 } }
+      responses:
+        '200': { description: AS_PUBLISHED items, or an explicit permission/store/empty reason }
   /market/overview:
     get:
       summary: NSE overview and freshness
       responses:
-        '200': { description: Empty indices and breadth mean no configured observations, not zero activity }
+        '200':
+          description: >-
+            Empty indices and breadth mean no configured observations, not zero activity.
+            database.state is INITIALISED, SCHEMA_MISSING or UNAVAILABLE; when the schema is
+            missing, counts are null and database.hint explains the fix.
+        '503': { description: Database unavailable or its schema has not been migrated }
   /securities:
     get:
       summary: Search the imported security master
@@ -43,16 +94,18 @@ paths:
   /history/{symbol}:
     get:
       summary: Stored historical prices
+      description: Served independently of the live quote adapter, but withheld unless HISTORICAL_DATA_PERMISSION_CONFIRMED=true. Responses carry a permission basis and END_OF_DAY freshness label.
       parameters:
         - { name: symbol, in: path, required: true, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
       responses:
-        '200': { description: Stored history or explicit empty state }
+        '200': { description: Stored history, or an explicit withheld/empty state }
         '400': { description: Invalid range }
   /technicals/{symbol}:
     get:
       summary: Technical indicators calculated from stored observations
+      description: Uses the same historical permission gate as /history. Demo fixtures are labelled and exempt.
       parameters:
         - { name: symbol, in: path, required: true, schema: { type: string } }
       responses:

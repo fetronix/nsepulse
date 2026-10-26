@@ -12,6 +12,6 @@ describe('market provider contract', () => {
   });
   it('supports independent provider registry replacement', async () => {
     const registry = new ProviderRegistry([new UnconfiguredProvider()]);
-    expect((await registry.statuses()).map(s => s.provider)).toEqual(['nse-authorized-feed']);
+    expect((await registry.statuses()).map((s) => s.provider)).toEqual(['nse-authorized-feed']);
   });
 });
