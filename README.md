@@ -113,6 +113,29 @@ import, `npm run test:integration`, and any API call that reads stored securitie
 history or announcements. Everything else — type checking, linting, unit tests, the client build,
 `/health/live` — runs without a database.
 
+### Supported environment
+
+| Requirement | Value                 | Notes                                                                                    |
+| ----------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| Node.js     | `>=22.12.0 <23`       | Enforced at install time (`.npmrc` → `engine-strict=true`), pinned in `.nvmrc` and in CI |
+| npm         | `>=10`                | `npm ci` is the supported install                                                        |
+| OS          | Linux, macOS, Windows | Line endings are normalised to LF by `.gitattributes`                                    |
+| PostgreSQL  | 16                    | Optional locally; the API starts read-only without it                                    |
+
+`npm ci` on an unsupported Node release fails immediately with `EBADENGINE` instead of letting
+the toolchain fail later. Switch with `nvm use` (reads `.nvmrc`).
+
+> **Windows note.** The repository uses LF line endings because Prettier is configured with
+> `endOfLine: 'lf'`. `.gitattributes` enforces that in every checkout, so `npm run format:check`
+> behaves identically on Windows. If you cloned before that file existed and every file is
+> reported as unformatted, your working tree is still CRLF — renormalise it once:
+>
+> ```bash
+> git add --renormalize .
+> git checkout -- .
+> npm run format:check
+> ```
+
 ## 7. Installation
 
 ```bash
@@ -402,6 +425,8 @@ npm run typecheck     # tsc for app and server configs
 npm run lint          # ESLint flat config (TS + React, no blanket any)
 npm run format:check  # Prettier
 npm run check:secrets # repository secret scan
+npm run check         # typecheck + lint + format:check + secret scan (fast gate)
+npm run verify        # check + coverage + both builds (the full gate)
 npm run build:all     # typecheck → vite build → server tsc (correct order, see below)
 npm run verify        # everything above, with coverage
 ```

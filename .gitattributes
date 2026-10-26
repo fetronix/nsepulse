@@ -1,0 +1,27 @@
+# Normalise line endings for every checkout, on every platform.
+#
+# `prettier.config.js` sets `endOfLine: 'lf'`, but Git for Windows defaults to
+# `core.autocrlf=true` and converts text files to CRLF on checkout. The result was that a
+# Windows clone failed `npm run format:check` on every file while the committed source was
+# already correctly formatted — the working tree, not the code, was wrong.
+#
+# With this file the index and every working tree use LF regardless of platform or
+# `core.autocrlf`, so formatting checks are reproducible. Do not remove it.
+* text=auto eol=lf
+
+# Shell scripts must stay LF to remain executable inside the container.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary assets must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
