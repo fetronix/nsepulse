@@ -393,6 +393,123 @@ committed state is self-sufficient:
 The scan covers 102 files at the branch head, up from 100 before this pass, because the two new
 test files are now tracked. Both the clone and the working tree report the same count.
 
+## 20. Verification pass: environment contract, line endings and HTTP hardening
+
+This pass started from a reported fresh-clone failure: `npm run format:check` failing on 86 files
+on Windows, with Node v24.18.1 installed while `package.json` requires `>=22.12.0 <23`.
+
+### Root cause of the formatting failure
+
+The committed source was already correctly formatted. `prettier.config.js` sets
+`endOfLine: 'lf'`, but the repository had no `.gitattributes`, and Git for Windows defaults to
+`core.autocrlf=true`, which converts the working tree to CRLF on checkout. Prettier then reports
+every text file as unformatted.
+
+The failure was reproduced against the branch head on this machine by cloning with
+`git -c core.autocrlf=true clone`:
+
+| Step                                                         | Result                                       |
+| ------------------------------------------------------------ | -------------------------------------------- |
+| `prettier --check .` on the CRLF checkout                    | `Code style issues found in 107 files`       |
+| Convert CRLF → LF in that same checkout, change nothing else | 121 files touched (line endings only)        |
+| `prettier --check .` again                                   | `All matched files use Prettier code style!` |
+
+The 107-vs-86 difference between this reproduction and the report is explained by which files a
+given checkout contains (the reported run predates the current branch head); the failure class is
+identical and is entirely line endings.
+
+**Fix:** a `.gitattributes` with `* text=auto eol=lf` (plus `eol=lf` for shell/YAML and `binary`
+for assets), so the index and every checkout use LF regardless of platform or `core.autocrlf`.
+No Prettier rule was relaxed, no file was excluded, and no source file content changed.
+
+### Node version contract
+
+`engines` alone is advisory — npm prints `EBADENGINE` and continues, which is how an unsupported
+runtime reaches the toolchain and produces confusing downstream failures. CI already pinned
+`NODE_VERSION: '22'`, matching `engines` and `.nvmrc`; the gap was local.
+
+**Fix:** `.npmrc` with `engine-strict=true`, verified by temporarily setting `engines.node` to an
+impossible range (`npm ci --dry-run` → `npm error code EBADENGINE`, exit 1) and restoring it.
+Node 22.22.3 was used for every command below.
+
+### Defect fixed in the scheduled snapshot refresh
+
+`scheduleSnapshotRefresh` awaited `withAdvisoryLock` **outside** its try/catch, so a database
+failure while acquiring the lock produced an unhandled promise rejection from a cron callback —
+invisible in the logs and fatal under `--unhandled-rejections=strict`. The adapter was also cast to
+`MansaProvider` on `live` alone, so any future live adapter would throw every 30 minutes. Both are
+fixed by `refreshProviderSnapshotOnce`, which contains every failure, checks the snapshot contract
+instead of casting, and returns an outcome so the behaviour is testable without waiting for a tick
+(6 tests: success, lock held elsewhere, lock failure, provider failure, non-Mansa adapter, throwing
+`usage()`).
+
+### HTTP timeouts
+
+Node's default `requestTimeout` is 300 s and `headersTimeout` is 60 s. For an API whose slowest
+legitimate response is one upstream call bounded by `MANSA_REQUEST_TIMEOUT_MS` (10 s), those are
+generous. `src/server/api/http.ts` now applies 15 s headers / 30 s request / 5 s keep-alive,
+asserted against a real `http.Server`. Honest note: on Node ≥ 19 `server.close()` already closes
+idle keep-alive sockets, so `drainServer` is not a fix for a current defect — it names the intent
+and keeps the drain covered by a test. A live shutdown with an idle keep-alive client open was
+measured at 9 ms with `shutdown_complete` and exit code 0.
+
+### Commands run in this pass (Node 22.22.3, npm 10.9.8)
+
+| Command                               | Result                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `npm ci`                              | pass, exit 0                                                                |
+| `npm run typecheck`                   | pass, exit 0, no output                                                     |
+| `npm run lint`                        | pass, exit 0, no output                                                     |
+| `npm run format:check`                | pass, `All matched files use Prettier code style!`                          |
+| `npm run format` (write mode)         | pass, **0 files changed** — the committed source was already formatted      |
+| `npm run check`                       | pass, exit 0 (new script: typecheck + lint + format:check + secret scan)    |
+| `npm run test`                        | pass, 41 files, **363 passed**, 2 skipped                                   |
+| `npm run test:coverage`               | pass, coverage **85.73 / 78.09 / 88.54 / 86.72** (thresholds 70/60/70/70)   |
+| `npm run build`                       | pass, `dist/assets/index-D5GLndN3.js` (182.85 kB)                           |
+| `npm run build:all`                   | pass, client bundle plus `dist/server/index.js`                             |
+| `npm audit --audit-level=high`        | `found 0 vulnerabilities`                                                   |
+| `npm run check:secrets`               | 121 files scanned, no credential-shaped strings                             |
+| `npm run test:integration:verified`   | **14 passed**, assertion `total 14, passed 14, failed 0, pending/skipped 0` |
+| `git status --short` after every gate | empty                                                                       |
+
+`npm run check` did not exist before this pass; the requested command now exists and is a strict
+subset of `npm run verify` (which adds coverage and both builds).
+
+### Integration job: does it really execute?
+
+Verified rather than assumed, in three ways:
+
+1. `tests/integration/setup.ts` throws when `REQUIRE_INTEGRATION_TESTS=true` and
+   `TEST_DATABASE_URL` is unset: `npx vitest run --config vitest.integration.config.ts` without a
+   database exits **1** instead of reporting an all-skipped suite as success.
+2. `scripts/assert-integration-ran.mjs` fails on an empty report (verified by substituting a
+   report with `numTotalTests: 0`): exit **1**, "A suite that skips is not a suite that passes."
+3. The CI job uses a real `postgres:16-alpine` service with health checks and test-only
+   credentials, applies migrations, runs the suite, asserts the report, then re-runs migrations to
+   prove idempotency.
+
+### Security review of secret surfaces
+
+| Check                                                                                | Result                     |
+| ------------------------------------------------------------------------------------ | -------------------------- |
+| `mansa_live_sk`, `MANSA_API_KEY`, `TELEGRAM_BOT_TOKEN`, bot-id in `dist/assets/*.js` | 0 matches                  |
+| Server-only env names anywhere under `dist/` client output                           | only `dist/server/**`      |
+| `Authorization: Bearer …` and `?token=…` sent to a running server, then log scanned  | 0 occurrences of the value |
+| `check-secrets` over the repository                                                  | 121 files, clean           |
+| `.gitignore` / `.dockerignore` exclude `.env`, `.env.*`, `logs`, dumps               | yes                        |
+
+### What this pass did not verify
+
+- **No Docker build or `docker compose up`.** No container runtime is available in this
+  environment. The Dockerfile was read and its ordering constraints are covered by
+  `tests/cli/build-pipeline.test.ts`, but nothing was built or started.
+- **No Mansa API call.** `mansaapi.com` is unreachable from this environment, so no authenticated
+  response, NSE instrument list, or timestamp/freshness behaviour was confirmed. Real market-data
+  access therefore stays disabled (`MARKET_DATA_PROVIDER=none`) and no quote is claimed.
+- **Node 24 was not tested.** The supported range remains `>=22.12.0 <23`, now enforced at install
+  time. Widening it would require a passing run on 24 first.
+- No backup/restore drill, SAST, penetration test or load test was run in this pass.
+
 ## How to re-run everything
 
 ```bash

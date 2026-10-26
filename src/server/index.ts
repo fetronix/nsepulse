@@ -1,4 +1,5 @@
 import { createApp } from './api/app.js';
+import { applyHttpTimeouts, drainServer } from './api/http.js';
 import { defaultProviderSelection } from './providers/factory.js';
 import { config, databaseConfig } from './config.js';
 import { closeDatabase, tryAcquireProcessLock } from './db/client.js';
@@ -29,20 +30,22 @@ logger.info(
   'provider_selection_resolved'
 );
 const stopScheduler = startScheduler();
-const server = app.listen(config.PORT, config.HOST, () => {
-  logger.info(
-    {
-      module: 'server',
-      host: config.HOST,
-      port: config.PORT,
-      databaseConfigured: Boolean(config.DATABASE_URL),
-      // Non-secret connection description: which variable supplied it, host and database name.
-      database: databaseConfig,
-      schedulerEnabled: config.ENABLE_SCHEDULER === 'true' && Boolean(config.DATABASE_URL)
-    },
-    'server_started'
-  );
-});
+const server = applyHttpTimeouts(
+  app.listen(config.PORT, config.HOST, () => {
+    logger.info(
+      {
+        module: 'server',
+        host: config.HOST,
+        port: config.PORT,
+        databaseConfigured: Boolean(config.DATABASE_URL),
+        // Non-secret connection description: which variable supplied it, host and database name.
+        database: databaseConfig,
+        schedulerEnabled: config.ENABLE_SCHEDULER === 'true' && Boolean(config.DATABASE_URL)
+      },
+      'server_started'
+    );
+  })
+);
 
 let bot: Awaited<ReturnType<typeof startTelegramBot>> | null = null;
 let releaseBotLock: (() => Promise<void>) | null = null;
@@ -163,7 +166,9 @@ async function shutdown(signal: string): Promise<void> {
 
   try {
     stopScheduler();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // Stops accepting new work and waits for active requests; idle keep-alive sockets are
+    // released rather than held until their timeout.
+    await drainServer(server);
     if (bot) {
       try {
         await bot.stop();

@@ -4,7 +4,6 @@ import { config } from '../config.js';
 import { withAdvisoryLock } from '../db/client.js';
 import { moduleLogger } from '../logging/logger.js';
 import { defaultProviderSelection } from '../providers/factory.js';
-import type { MansaProvider } from '../providers/mansa/provider.js';
 
 const jobs = defaultProviderSelection().registry;
 
@@ -99,44 +98,102 @@ export function startScheduler(options: SchedulerOptions = {}) {
  *
  * Only the owner of the advisory lock refreshes, so replicas do not multiply quota use.
  */
-function scheduleSnapshotRefresh(provider: { id: string; live?: boolean }, log: Logger): () => void {
-  if (!provider.live) return () => undefined;
-  const mansa = provider as MansaProvider;
-  const task = cron.schedule(
-    '*/30 * * * *',
-    async () => {
-      const startedAt = Date.now();
-      await withAdvisoryLock(814_782_026, async () => {
-        try {
-          const count = await mansa.refreshSnapshot();
-          log.info(
-            {
-              job: 'provider_snapshot_refresh',
-              outcome: 'success',
-              provider: mansa.id,
-              records: count,
-              usage: mansa.usage(),
-              durationMs: Date.now() - startedAt
-            },
-            'provider_snapshot_refreshed'
-          );
-        } catch (error) {
-          log.warn(
-            {
-              job: 'provider_snapshot_refresh',
-              outcome: 'failure',
-              provider: mansa.id,
-              usage: mansa.usage(),
-              errorClass: error instanceof Error ? error.name : 'UnknownError',
-              errorMessage: error instanceof Error ? error.message.slice(0, 200) : 'unknown',
-              durationMs: Date.now() - startedAt
-            },
-            'provider_snapshot_refresh_failed'
-          );
-        }
-      });
-    },
-    { timezone: 'Africa/Nairobi' }
-  );
+/**
+ * The subset of a provider the snapshot refresh needs.
+ *
+ * This is an explicit contract rather than a cast: an adapter that is `live` is not
+ * necessarily a Mansa adapter, and calling a method that does not exist would fail only at
+ * 30-minute intervals, in a scheduled job, at night.
+ */
+export interface SnapshotRefresher {
+  id: string;
+  live?: boolean;
+  refreshSnapshot?: () => Promise<number>;
+  usage?: () => unknown;
+}
+
+export type SnapshotRefreshOutcome = 'refreshed' | 'skipped' | 'failed';
+
+/**
+ * Perform one snapshot refresh attempt and contain every failure.
+ *
+ * Two defects made this necessary. The refresh awaited `withAdvisoryLock` *outside* its
+ * try/catch, so a database failure while acquiring the lock produced an unhandled promise
+ * rejection from a cron callback — invisible in the logs and fatal under
+ * `--unhandled-rejections=strict`. And the provider was cast to `MansaProvider` on `live`
+ * alone, so any other live adapter would throw every 30 minutes.
+ *
+ * Returns the outcome so the behaviour is testable without waiting for a cron tick.
+ */
+export async function refreshProviderSnapshotOnce(
+  provider: SnapshotRefresher,
+  log: Logger
+): Promise<SnapshotRefreshOutcome> {
+  if (!provider.live || typeof provider.refreshSnapshot !== 'function') {
+    log.debug(
+      { job: 'provider_snapshot_refresh', outcome: 'skipped', provider: provider.id },
+      'provider_snapshot_refresh_skipped'
+    );
+    return 'skipped';
+  }
+
+  const startedAt = Date.now();
+  const usage = (): unknown => {
+    try {
+      return provider.usage?.() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    const result = await withAdvisoryLock(814_782_026, async () => provider.refreshSnapshot!());
+    if (result === null) {
+      // Another replica owns the refresh; staying quiet keeps the log honest.
+      log.info(
+        {
+          job: 'provider_snapshot_refresh',
+          outcome: 'skipped',
+          provider: provider.id,
+          reason: 'refresh lock held elsewhere'
+        },
+        'provider_snapshot_refresh_skipped'
+      );
+      return 'skipped';
+    }
+    log.info(
+      {
+        job: 'provider_snapshot_refresh',
+        outcome: 'success',
+        provider: provider.id,
+        records: result,
+        usage: usage(),
+        durationMs: Date.now() - startedAt
+      },
+      'provider_snapshot_refreshed'
+    );
+    return 'refreshed';
+  } catch (error) {
+    log.warn(
+      {
+        job: 'provider_snapshot_refresh',
+        outcome: 'failure',
+        provider: provider.id,
+        usage: usage(),
+        errorClass: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message.slice(0, 200) : 'unknown',
+        durationMs: Date.now() - startedAt
+      },
+      'provider_snapshot_refresh_failed'
+    );
+    return 'failed';
+  }
+}
+
+function scheduleSnapshotRefresh(provider: SnapshotRefresher, log: Logger): () => void {
+  if (!provider.live || typeof provider.refreshSnapshot !== 'function') return () => undefined;
+  const task = cron.schedule('*/30 * * * *', () => void refreshProviderSnapshotOnce(provider, log), {
+    timezone: 'Africa/Nairobi'
+  });
   return () => task.stop();
 }

@@ -122,9 +122,23 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 5. Do not manually drop/recreate tables as a rollback. Prefer a new corrective migration or restore to a separate recovery DB. Migration rollback is not automatically generated; data-destructive changes require a deliberate backup/restore plan.
 6. Migration sequencing, idempotency and failure behaviour are exercised by `tests/integration/migrations.test.ts` against a disposable database, using synthetic migrations in a temporary folder (the repository itself ships a single migration).
 
+## Supported runtime
+
+| Item          | Value                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| Node.js       | `>=22.12.0 <23`, enforced by `.npmrc` (`engine-strict=true`); `npm ci` fails with `EBADENGINE` otherwise |
+| npm           | `>=10`                                                                                                   |
+| Line endings  | LF in every checkout, enforced by `.gitattributes`                                                       |
+| HTTP timeouts | 15 s headers, 30 s request, 5 s keep-alive (`src/server/api/http.ts`)                                    |
+
+`npm run check` is the fast gate (typecheck, lint, formatting, secret scan); `npm run verify` adds
+coverage and both production builds.
+
 ## Restart and troubleshooting
 
-- API not starting: confirm Node version, `PORT`, `HOST`, `DATABASE_URL` syntax and logs.
+- API not starting: confirm Node version (`node -v` must be 22.x; `npm ci` fails fast on anything else), `PORT`, `HOST`, the database settings and the logs.
+- **Every file reported as unformatted by `npm run format:check`**: the working tree has CRLF line endings, not unformatted code. Prettier is configured with `endOfLine: 'lf'` and `.gitattributes` normalises checkouts. Renormalise an older clone once with `git add --renormalize . && git checkout -- .`.
+- **`shutdown_started` without `shutdown_complete`**: the 10-second deadline fired and the process exited 1. Check for a stuck request; `server.close()` waits for active requests, idle keep-alive sockets are dropped immediately.
 - Dashboard cannot reach API: ensure reverse proxy maps `/api` to port `4000`; `APP_ORIGIN` must match browser origin.
 - `DATABASE_URL` missing: only degraded empty-state behavior is expected; configure Postgres (either `DATABASE_URL` or the `SQL_HOST`/`SQL_PORT`/`SQL_DB_NAME`/`SQL_ADMIN_USER`/`SQL_ADMIN_PASSWORD` group) and run migrations.
 - `Incomplete database configuration: SQL_DB_NAME, SQL_ADMIN_USER must be set…`: part of the `SQL_*` group is missing while no `DATABASE_URL` is present. The startup message names the missing keys only; it never prints values.

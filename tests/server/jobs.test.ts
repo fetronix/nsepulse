@@ -46,6 +46,7 @@ class FakeLogger {
   readonly info = vi.fn<LogFn>();
   readonly error = vi.fn<LogFn>();
   readonly warn = vi.fn<LogFn>();
+  readonly debug = vi.fn<LogFn>();
 }
 
 let logger: FakeLogger;
@@ -135,5 +136,88 @@ describe('scheduler', () => {
     const [fields, message] = logger.error.mock.calls[0]!;
     expect(message).toBe('provider_health_check_failed');
     expect(fields).toMatchObject({ job: 'provider_health_check', outcome: 'failure', errorClass: 'Error' });
+  });
+});
+
+describe('provider snapshot refresh', () => {
+  /** A live adapter with the snapshot contract, as the Mansa adapter has. */
+  function refresher(overrides: Partial<{ live: boolean; refreshSnapshot?: () => Promise<number> }> = {}) {
+    return {
+      id: 'mansa',
+      live: true,
+      refreshSnapshot: vi.fn(async () => 12),
+      usage: () => ({ used: 7, budget: 100 }),
+      ...overrides
+    };
+  }
+
+  it('refreshes once under the refresh lock and logs the record count', async () => {
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    const provider = refresher();
+    await expect(runner.refreshProviderSnapshotOnce(provider, logger as never)).resolves.toBe('refreshed');
+    expect(provider.refreshSnapshot).toHaveBeenCalledTimes(1);
+    expect(lockCalls).toEqual([814_782_026]);
+    const [fields, message] = logger.info.mock.calls.at(-1) ?? [];
+    expect(message).toBe('provider_snapshot_refreshed');
+    expect(fields).toMatchObject({ outcome: 'success', records: 12 });
+  });
+
+  it('skips when another replica holds the lock instead of refreshing twice', async () => {
+    lockBehaviour = 'skip';
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    const provider = refresher();
+    await expect(runner.refreshProviderSnapshotOnce(provider, logger as never)).resolves.toBe('skipped');
+    expect(provider.refreshSnapshot).not.toHaveBeenCalled();
+    expect(logger.info.mock.calls.at(-1)?.[1]).toBe('provider_snapshot_refresh_skipped');
+  });
+
+  it('contains a database failure while taking the lock instead of rejecting', async () => {
+    // Regression: this await used to sit outside the try/catch, so a storage blip became an
+    // unhandled promise rejection from a cron callback.
+    lockBehaviour = 'throw';
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    await expect(runner.refreshProviderSnapshotOnce(refresher(), logger as never)).resolves.toBe('failed');
+    const [fields, message] = logger.warn.mock.calls.at(-1) ?? [];
+    expect(message).toBe('provider_snapshot_refresh_failed');
+    expect(fields).toMatchObject({ errorClass: 'Error' });
+  });
+
+  it('contains a provider failure and still reports the quota usage', async () => {
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    const provider = refresher({
+      refreshSnapshot: vi.fn(async () => {
+        throw new Error('upstream 429');
+      })
+    });
+    await expect(runner.refreshProviderSnapshotOnce(provider, logger as never)).resolves.toBe('failed');
+    const [fields] = logger.warn.mock.calls.at(-1) ?? [];
+    expect(fields).toMatchObject({ usage: { used: 7, budget: 100 }, errorMessage: 'upstream 429' });
+  });
+
+  it('never calls a non-live or non-Mansa adapter', async () => {
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    await expect(
+      runner.refreshProviderSnapshotOnce({ id: 'nse-authorized-feed', live: false }, logger as never)
+    ).resolves.toBe('skipped');
+    // A live adapter without the snapshot method must not be cast and called anyway.
+    await expect(runner.refreshProviderSnapshotOnce({ id: 'other-live', live: true }, logger as never)).resolves.toBe(
+      'skipped'
+    );
+    expect(lockCalls).toEqual([]);
+  });
+
+  it('survives a usage() that throws while logging the failure', async () => {
+    lockBehaviour = 'throw';
+    const runner = await loadRunner({ ENABLE_SCHEDULER: 'true', DATABASE_URL: 'postgres://x@h/db' });
+    const provider = {
+      id: 'mansa',
+      live: true,
+      refreshSnapshot: vi.fn(async () => 0),
+      usage: () => {
+        throw new Error('usage exploded');
+      }
+    };
+    await expect(runner.refreshProviderSnapshotOnce(provider, logger as never)).resolves.toBe('failed');
+    expect(logger.warn.mock.calls.at(-1)?.[0]).toMatchObject({ usage: null });
   });
 });
