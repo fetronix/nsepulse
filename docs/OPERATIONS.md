@@ -122,6 +122,30 @@ Schedule regular backups, keep an off-host copy, restrict access, encrypt at res
 5. Do not manually drop/recreate tables as a rollback. Prefer a new corrective migration or restore to a separate recovery DB. Migration rollback is not automatically generated; data-destructive changes require a deliberate backup/restore plan.
 6. Migration sequencing, idempotency and failure behaviour are exercised by `tests/integration/migrations.test.ts` against a disposable database, using synthetic migrations in a temporary folder (the repository itself ships a single migration).
 
+## Integration test workflow
+
+| Step                              | Command                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| Everything, one command           | `npm run test:integration:local`                                             |
+| Keep the container for inspection | `npm run test:integration:local -- --keep`                                   |
+| Manual, against any PostgreSQL 16 | `TEST_DATABASE_URL=postgres://…/name_test npm run test:integration:verified` |
+
+The script starts only the `db-test` compose service (profile `test`, ephemeral tmpfs data,
+`127.0.0.1:5433`), waits for `pg_isready`, applies migrations, runs the suite with
+`REQUIRE_INTEGRATION_TESTS=true`, then removes that one container. It never runs
+`docker compose down` and never passes `-v`, so the `postgres-data` volume behind a developer's
+`db` service is never touched.
+
+Failure modes and what they mean:
+
+| Output                                                      | Meaning                                                                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `✖ Docker is not available`                                 | No daemon/socket. Use the manual command above.                                                              |
+| `✖ docker compose (v2) is not available`                    | Install the Compose plugin; v1 `docker-compose` is not supported.                                            |
+| `✖ docker-compose.yml does not declare a "db-test" service` | Wrong working directory, or the service was renamed.                                                         |
+| `✖ Migrations failed; not running the suite.`               | Schema problem; the suite is deliberately not attempted.                                                     |
+| `Integration assertion failed: only N test(s) passed`       | PostgreSQL was reachable but the suite did not execute — the guard that stops a skipped suite looking green. |
+
 ## Supported runtime
 
 | Item          | Value                                                                                                    |
