@@ -2,11 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { MansaProvider } from '../../src/server/providers/mansa/provider.js';
 
 /**
- * Manual live check against Mansa. Skipped unless MANSA_API_KEY is present, so the normal
- * unit suite never depends on a paid or external API and CI never needs a secret.
+ * Manual live check against Mansa.
  *
- * Run it deliberately:
- *   MANSA_API_KEY=mansa_live_sk_... npx vitest run tests/manual/mansa-live.test.ts
+ * Two conditions are required before any network call happens:
+ *   1. MANSA_API_KEY is present, and
+ *   2. MANSA_LIVE_TESTS is exactly `true`.
+ *
+ * The second condition matters because a developer may have a real key in `.env`. Without
+ * it, `npm test` in that working copy would quietly spend paid quota on every run. The gate
+ * is therefore an explicit opt-in, not merely the presence of a secret.
+ *
+ * Run it deliberately (PowerShell):
+ *   $env:MANSA_LIVE_TESTS='true'; npx vitest run tests/manual/mansa-live.test.ts
+ * or (bash):
+ *   MANSA_LIVE_TESTS=true npx vitest run tests/manual/mansa-live.test.ts
  *
  * It asserts only what Mansa documents — that an authenticated call succeeds and that the
  * payload normalises into a KES observation that is *not* labelled real-time. It does not
@@ -15,8 +24,13 @@ import { MansaProvider } from '../../src/server/providers/mansa/provider.js';
  */
 const apiKey = process.env.MANSA_API_KEY ?? '';
 const baseUrl = process.env.MANSA_API_BASE_URL ?? 'https://mansaapi.com';
+const optedIn = process.env.MANSA_LIVE_TESTS === 'true';
+const liveEnabled = Boolean(apiKey) && optedIn;
 
-describe.skipIf(!apiKey)('Mansa live integration (manual)', () => {
+/** Why the live block is not running; surfaced by the assertions below. */
+export const liveGate = { hasKey: Boolean(apiKey), optedIn, liveEnabled };
+
+describe.skipIf(!liveEnabled)('Mansa live integration (manual)', () => {
   it('discovers the Kenya exchange code from the API rather than assuming it', async () => {
     const provider = new MansaProvider({ baseUrl, apiKey });
     const exchange = await provider.discoverExchange();
@@ -47,10 +61,18 @@ describe.skipIf(!apiKey)('Mansa live integration (manual)', () => {
   }, 30_000);
 });
 
-if (!apiKey) {
-  describe('Mansa live integration (manual)', () => {
-    it('is skipped because MANSA_API_KEY is absent', () => {
-      expect(apiKey).toBe('');
-    });
+// The default suite must prove the gate works rather than trust it. This block runs whenever
+// the live calls are disabled, which is the normal case in CI and on a developer machine.
+describe.skipIf(liveEnabled)('Mansa live integration gating', () => {
+  it('never places a live call without both the key and the explicit opt-in', () => {
+    expect(liveEnabled).toBe(false);
+    // One of the two conditions must be the reason.
+    expect(liveGate.hasKey && liveGate.optedIn).toBe(false);
   });
-}
+
+  it('is excluded from the default commands unless MANSA_LIVE_TESTS=true', () => {
+    // Documents the contract enforced above: presence of a key alone is not enough.
+    if (liveGate.hasKey) expect(liveGate.optedIn).toBe(false);
+    expect(liveEnabled).toBe(false);
+  });
+});

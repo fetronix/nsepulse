@@ -15,7 +15,18 @@ import { describe, expect, it } from 'vitest';
  * code must not read an undocumented one.
  */
 
-const SCAN_ROOTS = ['src', 'scripts', 'docker'];
+/**
+ * `tests` is scanned as well: the integration harness reads TEST_DATABASE_URL and
+ * REQUIRE_INTEGRATION_TESTS, and both were previously undocumented. A contributor could
+ * find the guards in the test setup but had no documented way to satisfy them.
+ */
+const SCAN_ROOTS = ['src', 'scripts', 'docker', 'tests'];
+
+/**
+ * Process-level variables that belong to the shell, not to this application. They are
+ * deliberately not in `.env.example`; documenting them would be noise.
+ */
+const PROCESS_LEVEL = new Set(['PATH', 'HOME', 'PWD', 'TMPDIR', 'TEMP', 'TMP', 'USER', 'SHELL', 'NODE_OPTIONS']);
 const CODE_EXTENSIONS = /\.(ts|tsx|mjs|cjs|js|sh)$/;
 
 function walk(dir: string): string[] {
@@ -38,6 +49,14 @@ function validatedVariables(): string[] {
   return [...content.matchAll(/^ {2}([A-Z][A-Z0-9_]*):/gm)].map((match) => match[1]!);
 }
 
+/**
+ * Remove comments before scanning, so prose that mentions a variable (for example the
+ * explanation next to the schema collector) is not mistaken for a read of it.
+ */
+function stripComments(content: string): string {
+  return content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 function readVariables(): string[] {
   const found = new Set<string>(validatedVariables());
   for (const root of SCAN_ROOTS) {
@@ -48,8 +67,11 @@ function readVariables(): string[] {
       continue;
     }
     for (const file of files) {
-      const content = readFileSync(file, 'utf8');
-      for (const match of content.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) found.add(match[1]!);
+      const content = stripComments(readFileSync(file, 'utf8'));
+      for (const match of content.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+        const name = match[1]!;
+        if (!PROCESS_LEVEL.has(name)) found.add(name);
+      }
     }
   }
   return [...found].sort();
@@ -81,6 +103,15 @@ describe('environment variable documentation', () => {
   it('includes variables that are only validated through the schema', () => {
     expect(validatedVariables()).toContain('DATABASE_URL');
     expect(validatedVariables()).toContain('MARKET_DATA_PROVIDER');
+  });
+
+  it('documents the integration harness variables the tests actually read', () => {
+    const documented = new Set(documentedVariables());
+    expect(documented).toContain('TEST_DATABASE_URL');
+    expect(documented).toContain('REQUIRE_INTEGRATION_TESTS');
+    expect(documented).toContain('MIGRATIONS_FOLDER');
+    expect(documented).toContain('SECURITY_MASTER_SOURCE_URL');
+    expect(documented).toContain('SECURITY_MASTER_VERIFIED_AT');
   });
 
   it('reads no variable that is only meant for a test harness', () => {

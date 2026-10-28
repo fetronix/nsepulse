@@ -1,111 +1,30 @@
 import type { DataMode, MarketObservation, SecuritySummary } from '../../shared/domain.js';
 import type { ProviderRegistry } from '../providers/types.js';
-import {
-  findSecurityBySymbol,
-  latestObservation,
-  historicalObservations,
-  searchSecurities,
-  counts
-} from '../db/repository.js';
-import { isStale } from '../market/quality.js';
+import { findSecurityBySymbol, historicalObservations, searchSecurities, counts } from '../db/repository.js';
 import { classifyDatabaseError, isSchemaMissing } from '../db/errors.js';
 import { atr, ema, historicalVolatility, macd, rsi, sma } from '../market/indicators.js';
-import { DEMO_SOURCE_LABEL, demoFixtures, findDemoFixture } from '../providers/demo-fixtures.js';
+import { demoFixtures } from '../providers/demo-fixtures.js';
 import { ProviderRuntime } from '../providers/runtime.js';
 import { providerSettingsFromEnv } from '../providers/settings.js';
+import { resolveQuote } from '../market/quote.js';
+import type { Provenance } from '../market/provenance.js';
+import {
+  DEMO_NOTICE,
+  PROVIDER_QUOTE_NOTICE,
+  demoProvenance,
+  demoSecurity,
+  historicalPermission,
+  DEMO_PERMISSION
+} from '../market/provenance.js';
 
-export const DEMO_NOTICE = 'Demo fixture data — synthetic values, not NSE market data.';
+// Re-exported so existing callers (`import { DEMO_NOTICE } from '.../services/market.js'`)
+// keep working; the wording itself lives in market/provenance.ts.
+export { DEMO_NOTICE, PROVIDER_QUOTE_NOTICE };
 
 export interface MarketServiceOptions {
   runtime?: ProviderRuntime;
   /** Operator attestation that written historical display permission is on file. */
   historicalPermissionConfirmed?: boolean;
-}
-
-function historicalPermission(confirmed: boolean) {
-  return confirmed
-    ? {
-        status: 'GRANTED' as const,
-        basis: 'Operator-confirmed written permission for stored historical display and derived analytics.'
-      }
-    : {
-        status: 'UNCONFIRMED' as const,
-        basis: 'No written historical display/retention permission is recorded in the application.'
-      };
-}
-
-const DEMO_PERMISSION = {
-  status: 'NOT_APPLICABLE' as const,
-  basis: 'Demo fixtures are synthetic and are not sourced market data.'
-};
-
-type Provenance = {
-  kind: 'DEMO_FIXTURE' | 'STORED_OBSERVATION' | 'PROVIDER_QUOTE' | 'UNAVAILABLE';
-  label: string;
-  liveQuoteAdapterEnabled: boolean;
-  dataMode: DataMode;
-  source: string | null;
-  freshnessNote: string;
-};
-
-function demoProvenance(): Provenance {
-  return {
-    kind: 'DEMO_FIXTURE',
-    label: 'Demo fixture — synthetic values, not NSE market data',
-    liveQuoteAdapterEnabled: false,
-    dataMode: 'UNKNOWN',
-    source: DEMO_SOURCE_LABEL,
-    freshnessNote:
-      'Fixture values carry no market event timestamp and must never be described as live, delayed or end-of-day.'
-  };
-}
-
-export const PROVIDER_QUOTE_NOTICE =
-  'Provider snapshot — delayed market data, not real-time. Mansa documents a 30-minute freshness target during market hours.';
-
-function providerProvenance(
-  source: string,
-  dataMode: DataMode,
-  stale: boolean,
-  marketEventAt: string | null
-): Provenance {
-  return {
-    kind: 'PROVIDER_QUOTE',
-    label: 'Live adapter response from the configured market-data provider',
-    liveQuoteAdapterEnabled: true,
-    dataMode,
-    source,
-    freshnessNote: marketEventAt
-      ? `Provider observation time ${marketEventAt}. Data mode ${dataMode} is derived from provider metadata, never assumed to be real-time${stale ? '; the snapshot is stale' : ''}.`
-      : 'The provider supplied no observation timestamp, so freshness cannot be asserted.'
-  };
-}
-
-function storedProvenance(source: string, dataMode: string, stale: boolean): Provenance {
-  return {
-    kind: 'STORED_OBSERVATION',
-    label: 'Stored observation from the application database (not a live feed)',
-    liveQuoteAdapterEnabled: false,
-    dataMode: (dataMode as DataMode) ?? 'UNKNOWN',
-    source,
-    freshnessNote: stale
-      ? 'The stored observation is older than 24 hours or has no market event timestamp; treat it as historical.'
-      : 'Freshness is judged from the recorded market event time; the source and data mode are shown exactly as stored.'
-  };
-}
-
-function demoSecurity(symbol: string) {
-  const fixture = findDemoFixture(symbol);
-  return {
-    id: `demo:${symbol}`,
-    symbol,
-    name: fixture ? `${fixture.name} (demo)` : `${symbol} (demo fixture)`,
-    exchange: 'DEMO',
-    instrumentType: 'DEMO_FIXTURE',
-    listingStatus: 'DEMO_ONLY',
-    sector: 'DEMO FIXTURE',
-    demo: true
-  };
 }
 
 interface TechnicalSeriesRow {
@@ -214,143 +133,7 @@ export class MarketService {
   }
 
   async quote(symbol: string) {
-    const provider = this.providers.primary;
-    if (provider.demo) {
-      const observation = await provider.getLatestQuote({ symbol });
-      if (!observation) {
-        this.runtime.recordRetrievalFailure(provider.id, `Demo fixture missing for ${symbol}`);
-        return {
-          security: null,
-          observation: null,
-          reason:
-            'This symbol is not one of the demo fixtures. Demo mode never returns real securities, quotes or prices.',
-          provenance: demoProvenance(),
-          warnings: [DEMO_NOTICE]
-        };
-      }
-      this.runtime.recordRetrievalSuccess(provider.id);
-      return {
-        security: demoSecurity(symbol),
-        observation: { ...observation, stale: false },
-        reason: null,
-        provenance: demoProvenance(),
-        warnings: [DEMO_NOTICE]
-      };
-    }
-
-    // Live adapter first. A provider that is enabled but fails must not be papered over with
-    // stored rows: the stored path below is labelled as stored and says so in the warnings.
-    if (provider.live) {
-      const observation = await provider.getLatestQuote({ symbol });
-      if (observation) {
-        this.runtime.recordRetrievalSuccess(provider.id);
-        const security = await findSecurityBySymbol(symbol);
-        const stale = isStale(observation.marketEventAt);
-        return {
-          security: security
-            ? {
-                id: security.id,
-                symbol: security.symbol,
-                name: security.name,
-                exchange: security.exchange,
-                instrumentType: security.instrumentType,
-                listingStatus: security.listingStatus,
-                sector: security.sector
-              }
-            : {
-                id: observation.securityId,
-                symbol: observation.symbol,
-                name: observation.symbol,
-                exchange: 'NSE',
-                instrumentType: 'EQUITY',
-                listingStatus: 'UNKNOWN',
-                sector: null
-              },
-          observation: { ...observation, stale },
-          reason: null,
-          provenance: providerProvenance(observation.source, observation.dataMode, stale, observation.marketEventAt),
-          warnings: [
-            PROVIDER_QUOTE_NOTICE,
-            ...(stale ? ['The provider snapshot is older than 24 hours; treat it as historical.'] : []),
-            ...(security
-              ? []
-              : ['This symbol is not in the configured security master; identity is taken from the provider record.'])
-          ]
-        };
-      }
-      const failure = provider.describeLastFailure?.() ?? 'The provider returned no quote for this symbol.';
-      this.runtime.recordRetrievalFailure(provider.id, failure);
-      const security = await findSecurityBySymbol(symbol);
-      const row = security ? await latestObservation(security.id) : null;
-      if (!row)
-        return {
-          security,
-          observation: null,
-          reason: `No verified quote is available: the configured provider did not supply one (${failure}).`,
-          provenance: null,
-          warnings: [PROVIDER_QUOTE_NOTICE]
-        };
-      const fallbackStale = isStale(row.marketEventAt?.toISOString() ?? null);
-      return {
-        security,
-        observation: {
-          ...row,
-          price: Number(row.price),
-          open: row.open ? Number(row.open) : null,
-          high: row.high ? Number(row.high) : null,
-          low: row.low ? Number(row.low) : null,
-          previousClose: row.previousClose ? Number(row.previousClose) : null,
-          turnover: row.turnover ? Number(row.turnover) : null,
-          stale: fallbackStale,
-          marketEventAt: row.marketEventAt?.toISOString() ?? null
-        },
-        reason: null,
-        provenance: storedProvenance(row.source, row.dataMode, fallbackStale),
-        warnings: [
-          `The provider did not answer (${failure}). The quote shown is a stored observation, not a current provider quote.`,
-          ...(fallbackStale ? ['The stored observation is stale.'] : [])
-        ]
-      };
-    }
-
-    const security = await findSecurityBySymbol(symbol);
-    if (!security)
-      return {
-        security: null,
-        observation: null,
-        reason: 'Security not found in the configured security master.',
-        provenance: null,
-        warnings: []
-      };
-    const row = await latestObservation(security.id);
-    if (!row)
-      return {
-        security,
-        observation: null,
-        reason: 'No verified market observations are available.',
-        provenance: null,
-        warnings: []
-      };
-    const eventAt = row.marketEventAt?.toISOString() ?? null;
-    const stale = isStale(eventAt);
-    return {
-      security,
-      observation: {
-        ...row,
-        price: Number(row.price),
-        volume: row.volume,
-        open: row.open ? Number(row.open) : null,
-        high: row.high ? Number(row.high) : null,
-        low: row.low ? Number(row.low) : null,
-        previousClose: row.previousClose ? Number(row.previousClose) : null,
-        turnover: row.turnover ? Number(row.turnover) : null,
-        stale,
-        marketEventAt: eventAt
-      },
-      reason: null,
-      provenance: storedProvenance(row.source, row.dataMode, stale),
-      warnings: stale ? ['The most recent stored observation is stale; freshness is not guaranteed.'] : []
-    };
+    return resolveQuote({ providers: this.providers, runtime: this.runtime }, symbol);
   }
 
   /**

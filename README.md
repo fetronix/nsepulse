@@ -13,6 +13,7 @@ rather than filling gaps with invented numbers.
 > platform. Licensed market data, authentication, user-owned products and feed ingestion are
 > not implemented. Current status and verified checks: [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md).
 > Readiness matrix with per-requirement evidence: [`docs/ENGINEERING_READINESS.md`](docs/ENGINEERING_READINESS.md).
+> Changes, and what is deliberately not done: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -177,6 +178,13 @@ than running with a half-valid configuration.
 | `SECURITY_MASTER_SOURCE_URL`, `SECURITY_MASTER_VERIFIED_AT`                   | none                          | Supplied per import command; the importer refuses to run without both                                  |
 | `RUN_MIGRATIONS`                                                              | unset                         | Container entrypoint only; applies migrations on start                                                 |
 | `MIGRATIONS_FOLDER`                                                           | `./drizzle/generated`         | Directory `npm run db:migrate` reads; override when mounting elsewhere                                 |
+| `TEST_DATABASE_URL`                                                           | unset                         | Integration suite only. Full `postgres://` URL to a disposable database; must parse with `new URL()`   |
+| `REQUIRE_INTEGRATION_TESTS`                                                   | `false`                       | Integration suite only. `true` = fail instead of skip when no database is configured (CI sets this)    |
+
+The integration-harness variables are read only by the test suite; the application never looks at
+them, so leaving them unset changes nothing about how the app runs. They are documented because a
+contributor who found `REQUIRE_INTEGRATION_TESTS` in the test setup previously had no documented way
+to satisfy it.
 
 Secrets belong in the server environment or a secret manager. Never in a `VITE_*` variable,
 which is compiled into the browser bundle.
@@ -401,6 +409,38 @@ npm test                        # unit + API + client tests (Vitest)
 npm run test:coverage           # same suite with coverage thresholds enforced
 npm run test:integration        # requires TEST_DATABASE_URL — real PostgreSQL
 npm run test:integration:verified  # same, but fails if the suite only skipped
+npm run test:integration:local  # one command: starts a disposable container, migrates, runs
+```
+
+### Local integration run
+
+`npm run test:integration:local` is the whole workflow, and needs only Docker:
+
+```bash
+npm run test:integration:local            # start db-test → migrate → run → remove container
+npm run test:integration:local -- --keep  # leave the container running to inspect it
+```
+
+It starts **only** the `db-test` service from `docker-compose.yml` (profile `test`, tmpfs
+storage, published on `127.0.0.1:5433`), waits for readiness, applies migrations, then runs
+`test:integration:verified` with `REQUIRE_INTEGRATION_TESTS=true`. Cleanup uses
+`docker compose --profile test rm -sf db-test` — deliberately **not** `down`, which would stop
+your `db` and `app` too, and never `-v`, which would delete the `postgres-data` volume holding
+your local database. The suite refuses to run unless the target database name contains `test`
+and differs from `DATABASE_URL`.
+
+Without Docker, run the same steps against any PostgreSQL 16 instance:
+
+```bash
+createdb nse_pulse_some_test
+TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/nse_pulse_some_test npm run test:integration:verified
+```
+
+The live Mansa check is separate and doubly opt-in: it needs **both** `MANSA_API_KEY` **and**
+`MANSA_LIVE_TESTS=true`, so a key in `.env` does not turn `npm test` into a paid API call.
+
+```bash
+MANSA_LIVE_TESTS=true npx vitest run tests/manual/mansa-live.test.ts
 ```
 
 `test:integration` exits 0 when every test skips, so it is not proof on its own. Use
