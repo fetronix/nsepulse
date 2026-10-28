@@ -5,8 +5,9 @@ import { defineConfig } from 'vitest/config';
  *
  * Coverage measures every TypeScript source file under `src/`, including files that
  * no test imports, so an untested module counts as uncovered rather than disappearing
- * from the report. `src/server/db/schema.ts` is excluded because it contains only
- * declarative Drizzle table definitions with no executable business logic.
+ * from the report. The schema modules (`src/server/db/schema.ts` and
+ * `src/server/db/schema/`) are excluded because they contain only declarative Drizzle table
+ * definitions with no executable business logic.
  */
 export default defineConfig({
   test: {
@@ -17,7 +18,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/server/db/schema.ts', 'src/server/index.ts'],
+      exclude: ['src/server/db/schema.ts', 'src/server/db/schema/**', 'src/server/index.ts'],
       reporter: ['text', 'text-summary', 'lcov', 'json-summary'],
       reportsDirectory: 'coverage',
       thresholds: {
