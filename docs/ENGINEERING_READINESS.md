@@ -47,6 +47,12 @@ so `FROM node:22-alpine` cannot be fetched. Outbound access is limited to GitHub
 (`github.com` and `api.github.com` return 200). A Docker build is therefore not merely
 "untried" here, it is unachievable: no runtime can be obtained and no base image can be pulled.
 
+**Pass D — 2026-10-28, repository state: the head of `arena/c78fd30c-nsepulse` at the time of the pass**: same sandbox, PostgreSQL **16.14**
+re-provisioned from `@embedded-postgres/linux-x64@16.14.0-beta.17` (`initdb` → `pg_ctl` on
+`127.0.0.1:5440`, database `nse_pulse_test`). Docker remains unavailable. This pass did no
+market-data work: it split five oversized modules, closed test gaps, and re-ran every gate from
+a clean clone. Results are in §21. No score, rating or payout is implied.
+
 ## 1. Reproducible installation
 
 | Item          | Value                                                                                              |
@@ -510,6 +516,84 @@ Verified rather than assumed, in three ways:
   time. Widening it would require a passing run on 24 first.
 - No backup/restore drill, SAST, penetration test or load test was run in this pass.
 
+## 21. Verification pass: module splits, test gaps and the local integration workflow
+
+Run on a **clean clone** of branch `arena/c78fd30c-nsepulse`, Node `v22.22.3`,
+npm `10.9.8`, PostgreSQL 16.14 on `127.0.0.1:5440`.
+
+| Step                                                                    | Actual result                                                                                                                |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci`                                                                | `added 430 packages`, `found 0 vulnerabilities`                                                                              |
+| `npm run typecheck`                                                     | pass, no output                                                                                                              |
+| `npm run lint`                                                          | pass, no output and no warnings                                                                                              |
+| `npm run format:check`                                                  | `All matched files use Prettier code style!`                                                                                 |
+| `npm run check:secrets`                                                 | pass                                                                                                                         |
+| `npm run test:coverage`                                                 | **49 files, 441 passed / 2 skipped**; statements **87.56 %**, branches **80.31 %**, functions **90.51 %**, lines **88.20 %** |
+| `npm run build:all`                                                     | pass (`vite build` + `tsc -p tsconfig.server.json`)                                                                          |
+| `npm audit --audit-level=high`                                          | `found 0 vulnerabilities`                                                                                                    |
+| `npm run test:integration:verified` with `TEST_DATABASE_URL`            | **14 passed / 0 failed / 0 skipped**; assertion `total 14, passed 14, failed 0, pending/skipped 0`                           |
+| `npm run test:integration` without `TEST_DATABASE_URL`                  | exit 0, **14 skipped** (reported as skipped, not passed)                                                                     |
+| `REQUIRE_INTEGRATION_TESTS=true npm run test:integration` without a URL | exit **1**, no tests run — the anti-skip guard still bites                                                                   |
+| Migrated schema in `nse_pulse_test`                                     | **31 tables, 30 foreign keys, 67 indexes**                                                                                   |
+| `npx drizzle-kit generate` after the schema split                       | `No schema changes, nothing to migrate` — the split changed no DDL                                                           |
+| `npm run test:integration:local` (no Docker)                            | exit 1 with the manual `TEST_DATABASE_URL=…` fallback; no container command attempted                                        |
+
+Baseline at `912d731` for comparison: 41 files / 363 passed / 2 skipped, coverage
+85.73 / 78.09 / 88.54 / 86.72.
+
+### 21.1 Module splits (behaviour-preserving)
+
+| Was       | Now                                                                                                               | Public surface |
+| --------- | ----------------------------------------------------------------------------------------------------------------- | -------------- |
+| 749 lines | `App.tsx` (172) — shell and state; `pages/{Overview,Securities,Sources}Page.tsx`; `api.ts`; `components/Logo.tsx` | unchanged      |
+| 643 lines | `ProviderSetupPage.tsx` (255); `components/{Pill,status,TestCard,SourceCard,ProviderMetrics,ProviderPanels}`      | unchanged      |
+| 630 lines | `services/market.ts` (413); `market/provenance.ts`; `market/quote.ts` (`resolveQuote`)                            | re-exported    |
+| 593 lines | `mansa/provider.ts` (456); `mansa/{descriptor,discovery,movers,snapshot}.ts`                                      | unchanged      |
+| 544 lines | `db/schema.ts` barrel; `db/schema/{identity,market,research,personal,operations,common}.ts`                       | re-exported    |
+
+Each split was committed separately and the full suite was run after each one. The database
+split is verified by DDL equality rather than by assertion: `drizzle-kit generate` reports no
+changes, and the integration suite exercises the split table definitions against real
+PostgreSQL (inserts, joins, stale labelling). No route, validation, authz or transaction was
+altered.
+
+### 21.2 Defects found and fixed in this pass
+
+1. **An undated provider snapshot was described as "older than 24 hours".** The value was
+   correctly marked stale, but the warning asserted an age nothing supported. The two cases now
+   have separate wording; the undated case says freshness cannot be asserted.
+2. **`tests/integration/process-lock.test.ts` ran unconditionally**, so `npm run
+test:integration` exits 1 with "expected null not to be null" on any machine without a test
+   database — contradicting the contract documented in `vitest.integration.config.ts`. It now
+   skips with the other suites, and `tests/cli/integration-convention.test.ts` enforces that
+   convention for every file under `tests/integration` (confirmed to fail against the old file).
+3. **The live Mansa test was gated only on `MANSA_API_KEY`**, so a key in a developer's `.env`
+   turned every `npm test` into a billable API call. It now also requires
+   `MANSA_LIVE_TESTS=true`; verified with no key (skipped), key without opt-in (skipped) and
+   key plus opt-in (real attempt, failing without a valid key).
+
+### 21.3 Test gaps closed
+
+New suites, all offline and deterministic: quote resolution against a live adapter (10),
+Mansa parsing and status (20), Mansa TTL cache (11), Telegram polling guard (4), schema
+surface (4), UI status vocabulary (8), integration-suite convention (2), local integration
+harness (17), env-documentation guard (5). Coverage moved from 85.73/78.09 to 87.56/80.31
+without lowering a threshold.
+
+### 21.4 Still blocked or not done
+
+- **Docker** is unavailable and cannot be installed (unchanged from Pass C). `npm run
+test:integration:local` is therefore unit-tested with an injected command runner and verified
+  only for its honest degradation, never executed end to end.
+- **No live Mansa or NSE request.** `MARKET_DATA_PROVIDER` stays `none`; no price in this
+  repository has been verified against a provider.
+- **`@types/express` is v5 while the runtime is Express 4.** The build is clean, but the types
+  describe an API the server does not run. Flagged, not changed: aligning them is a migration,
+  not a version bump.
+- **No `LICENSE` file exists.** `package.json` declares no licence, and none was added
+  automatically.
+- No load test, SAST, penetration test, backup/restore drill or protocol-level chaos test.
+
 ## How to re-run everything
 
 ```bash
@@ -524,8 +608,9 @@ npm audit --audit-level=high
 npm audit --omit=dev --audit-level=high
 npm run build:all
 npm run check:secrets
-docker compose --profile test up -d db-test   # if Docker exists
-TEST_DATABASE_URL=postgres://nse_pulse_test:test_only@127.0.0.1:5433/nse_pulse_test npm run test:integration:verified
+npm run test:integration:local                # starts db-test, migrates, runs, cleans up (needs Docker)
+# or, against any disposable PostgreSQL you already have:
+TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/name_test npm run test:integration:verified
 docker build -t nse-pulse .
 docker compose up -d && curl -s localhost:4000/api/v1/health/ready
 ```
