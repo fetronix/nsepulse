@@ -7,12 +7,20 @@ import { closeDatabase, tryAcquireProcessLock } from '../../src/server/db/client
  * `tryAcquireProcessLock` holds a session-level advisory lock on a dedicated connection, which
  * is what stops a second replica (or an overlapping restart) from opening a competing Telegram
  * `getUpdates` loop. A mock would not demonstrate that, because the guarantee is the database's.
+ *
+ * Follows the same convention as the other integration suites: without TEST_DATABASE_URL the
+ * file is skipped and reported as skipped. It previously ran unconditionally and failed with
+ * "expected null not to be null" on any machine without a test database, contradicting the
+ * contract in vitest.integration.config.ts. CI sets REQUIRE_INTEGRATION_TESTS=true, so a
+ * genuinely missing database still fails there rather than skipping.
  */
 const KEY = 731_502_611;
+const testUrl = process.env.TEST_DATABASE_URL;
+const integration = testUrl ? describe : describe.skip;
 
 afterAll(async () => closeDatabase());
 
-describe('process advisory lock', () => {
+integration('process advisory lock', () => {
   it('grants the lock once and refuses a second holder', async () => {
     const first = await tryAcquireProcessLock(KEY);
     expect(first).not.toBeNull();
