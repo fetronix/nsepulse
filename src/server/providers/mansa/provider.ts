@@ -5,7 +5,6 @@ import type {
   MarketDataProvider,
   MoversRequest,
   MoversSnapshot,
-  MoverQuote,
   ProviderCapabilities,
   ProviderSelfTest,
   QuoteRequest
@@ -13,7 +12,6 @@ import type {
 import { MansaClient, type MansaEnvelope } from './client.js';
 import { describeMansaError, isMansaError, MansaError } from './errors.js';
 import {
-  deriveFreshness,
   describeKeys,
   extractRecords,
   MANSA_SOURCE_LABEL,
@@ -22,6 +20,10 @@ import {
   toFiniteNumber
 } from './normalize.js';
 import { TtlCache } from './cache.js';
+import { describeMansaStatus, mansaCapabilities } from './descriptor.js';
+import { selectKenyaExchange, type ExchangeDiscovery } from './discovery.js';
+import { toMoverQuotes } from './movers.js';
+import { findSnapshotRecord } from './snapshot.js';
 
 /**
  * Mansa API adapter (https://mansaapi.com/docs).
@@ -49,14 +51,6 @@ export interface MansaProviderOptions {
   /** Documented fallback exchange code; used only when discovery cannot resolve Kenya. */
   fallbackExchangeCode?: string;
 }
-
-interface ExchangeDiscovery {
-  code: string;
-  source: 'DISCOVERY' | 'DOCUMENTED_FALLBACK';
-  evidence: string;
-}
-
-const KENYA_MATCH_TERMS = ['kenya', 'nairobi', 'nse'];
 
 /** Discriminated union of everything this adapter caches. */
 type CachedPayload =
@@ -108,92 +102,16 @@ export class MansaProvider implements MarketDataProvider {
   }
 
   capabilities(): ProviderCapabilities {
-    return {
-      displayName: 'Mansa API (mansaapi.com)',
-      adapterVersion: '0.1.0',
-      // Mansa documents a 30-minute freshness target during market hours, so DELAYED is the
-      // strongest claim the documentation supports. It is never promoted to REAL_TIME.
-      accessLevel: 'DELAYED',
-      entitlement: 'CONTRACTED',
-      coverage: {
-        state: 'DECLARED',
-        securitiesScope:
-          'Kenyan equities listed on the Nairobi Securities Exchange, as returned by Mansa for the exchange code discovered at runtime (documented example code: NSE).',
-        symbols: null,
-        symbolCount: null,
-        fields: [
-          'price',
-          'currency',
-          'previous close',
-          'open',
-          'high',
-          'low',
-          'volume',
-          'turnover',
-          'percentage change (when supplied)',
-          'provider observation time'
-        ],
-        intervals: ['intraday snapshot (30-minute documented target)', '1d (history, Pro plan)'],
-        historyDepth: 'Per-stock history requires the Pro plan; not available on the free tier.',
-        includesIndices: true,
-        notes: [
-          'Coverage and field names are asserted from Mansa’s published documentation, not from a successful authenticated response in this environment.',
-          'The free tier is documented as 100 requests per day, which this adapter enforces locally.',
-          'Fields absent from a payload stay absent; nothing is interpolated or carried forward silently.',
-          'A Mansa API key is not an NSE redistribution licence; confirm terms before publishing prices.'
-        ]
-      },
-      demo: false,
-      documentationUrl: 'https://mansaapi.com/docs'
-    };
+    return mansaCapabilities();
   }
 
   async status(): Promise<ProviderStatus> {
-    const base = {
-      provider: this.id,
-      dataMode: 'DELAYED' as const,
-      sourceUrl: 'https://mansaapi.com/docs',
-      displayName: this.capabilities().displayName,
-      demo: false,
-      lastSuccessAt: this.lastSuccessAt?.toISOString() ?? null
-    };
-
-    if (!this.configured)
-      return {
-        ...base,
-        configured: false,
-        state: 'UNCONFIGURED',
-        message:
-          'MARKET_DATA_PROVIDER=mansa but MANSA_API_KEY is empty. No request is made; no quote is available until a key is supplied.',
-        dataMode: 'UNKNOWN'
-      };
-
-    if (this.lastFailure && !this.lastSuccessAt)
-      return {
-        ...base,
-        configured: true,
-        state: 'ERROR',
-        dataMode: 'UNKNOWN',
-        message: `The Mansa adapter is configured but the last attempt failed: ${this.lastFailure}`
-      };
-
-    if (!this.lastSuccessAt)
-      return {
-        ...base,
-        configured: true,
-        state: 'DEGRADED',
-        message:
-          'Credentials are present but no authenticated Mansa response has been verified in this process yet. Run the provider connection test before claiming any data is live.',
-        dataMode: 'UNKNOWN'
-      };
-
-    return {
-      ...base,
-      configured: true,
-      state: 'READY',
-      message:
-        'Authenticated Mansa responses have been received in this process. Prices are delayed snapshots per Mansa’s documented 30-minute freshness target, not real-time.'
-    };
+    return describeMansaStatus({
+      configured: this.configured,
+      displayName: mansaCapabilities().displayName,
+      lastSuccessAt: this.lastSuccessAt,
+      lastFailure: this.lastFailure
+    });
   }
 
   /**
@@ -205,35 +123,7 @@ export class MansaProvider implements MarketDataProvider {
   async discoverExchange(): Promise<ExchangeDiscovery> {
     if (this.exchange) return this.exchange;
     const envelope = await this.client.get('/api/v1/markets/exchanges');
-    const records = extractRecords(envelope.data, ['exchanges']);
-    for (const record of records) {
-      if (!record || typeof record !== 'object') continue;
-      const item = record as Record<string, unknown>;
-      const code = [item.code, item.exchange, item.exchange_code, item.symbol].find(
-        (value): value is string => typeof value === 'string' && value.trim().length > 0
-      );
-      if (!code) continue;
-      const haystack = [item.country, item.country_name, item.country_code, item.name, item.currency, code]
-        .filter((value): value is string => typeof value === 'string')
-        .join(' ')
-        .toLowerCase();
-      const isKenya = haystack.includes('kenya') || haystack.includes('kes') || haystack.includes('nairobi');
-      if (isKenya && KENYA_MATCH_TERMS.some((term) => haystack.includes(term))) {
-        this.exchange = {
-          code: code.trim().toUpperCase(),
-          source: 'DISCOVERY',
-          evidence: `Matched from /api/v1/markets/exchanges using keys: ${describeKeys(item).join(', ')}`
-        };
-        return this.exchange;
-      }
-    }
-
-    this.exchange = {
-      code: this.fallbackExchangeCode,
-      source: 'DOCUMENTED_FALLBACK',
-      evidence:
-        'The exchange list did not contain a Kenya entry this adapter could identify, so the documented exchange code was used.'
-    };
+    this.exchange = selectKenyaExchange(envelope.data, this.fallbackExchangeCode);
     return this.exchange;
   }
 
@@ -242,7 +132,7 @@ export class MansaProvider implements MarketDataProvider {
     if (!/^[A-Z0-9.-]{1,24}$/.test(symbol)) return null;
     try {
       const quote = await this.cache.getOrLoad(`quote:${symbol}`, async () => {
-        const fromSnapshot = this.findInSnapshot(symbol);
+        const fromSnapshot = findSnapshotRecord(this.cachedRecords(), symbol);
         if (fromSnapshot) return { kind: 'quote' as const, record: fromSnapshot, exchange: this.exchange! };
         const exchange = await this.discoverExchange();
         const envelope = await this.client.get(
@@ -295,23 +185,13 @@ export class MansaProvider implements MarketDataProvider {
 
   /** Records already warmed for the exchange, without making a request. */
   cachedSnapshotSize(): number {
-    if (!this.exchange) return 0;
-    const cached = this.cache.get(`snapshot:${this.exchange.code}`);
-    return cached?.kind === 'snapshot' ? cached.records.length : 0;
+    return this.cachedRecords().length;
   }
 
-  private findInSnapshot(symbol: string): unknown | null {
-    if (!this.exchange) return null;
+  private cachedRecords(): unknown[] {
+    if (!this.exchange) return [];
     const cached = this.cache.get(`snapshot:${this.exchange.code}`);
-    if (cached?.kind !== 'snapshot') return null;
-    for (const record of cached.records) {
-      const item = (record ?? {}) as Record<string, unknown>;
-      const ticker = [item.symbol, item.ticker, item.canonical_symbol].find(
-        (value): value is string => typeof value === 'string' && value.trim().length > 0
-      );
-      if (ticker && ticker.trim().toUpperCase() === symbol) return record;
-    }
-    return null;
+    return cached?.kind === 'snapshot' ? cached.records : [];
   }
 
   /** Full normalisation detail for the same request, used by diagnostics and tests. */
@@ -346,28 +226,11 @@ export class MansaProvider implements MarketDataProvider {
       if (snapshot.kind !== 'movers') return null;
       this.lastSuccessAt = this.now();
       this.lastFailure = null;
-      const records = extractRecords(snapshot.envelope.data, [request.type, 'movers']);
       const now = this.now();
-      const items: MoverQuote[] = [];
-      for (const record of records.slice(0, limit)) {
-        const item = (record ?? {}) as Record<string, unknown>;
-        const symbol = [item.symbol, item.ticker, item.canonical_symbol].find(
-          (value): value is string => typeof value === 'string' && value.trim().length > 0
-        );
-        if (!symbol) continue;
-        const price = toFiniteNumber(item.close ?? item.price ?? item.last_price);
-        const changePercent = toFiniteNumber(item.change_percentage ?? item.change_pct ?? item.changePercentage);
-        const observedAt = toDate(item.updated_at ?? item.currentDateTime ?? item.timestamp);
-        const freshness = deriveFreshness(observedAt, now);
-        items.push({
-          symbol: symbol.trim().toUpperCase(),
-          price: price !== null && price > 0 ? price : null,
-          changePercent,
-          currency: 'KES',
-          marketEventAt: observedAt ? observedAt.toISOString() : null,
-          dataMode: freshness.mode
-        });
-      }
+      const items = toMoverQuotes(extractRecords(snapshot.envelope.data, [request.type, 'movers']), {
+        limit,
+        now
+      });
       return {
         type: request.type,
         items,
